@@ -14,12 +14,17 @@ function CreateVariablePage() {
   const [minValue, setMinValue] = useState("");
   const [maxValue, setMaxValue] = useState("");
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadingScenarios, setLoadingScenarios] = useState(true);
 
   useEffect(() => {
     loadScenarios();
   }, []);
 
   const loadScenarios = async () => {
+    setLoadingScenarios(true);
+    setMessage("");
+
     try {
       const token = getToken();
 
@@ -32,37 +37,51 @@ function CreateVariablePage() {
       setScenarios(response.data);
     } catch (error) {
       console.error("Error cargando escenarios:", error);
-      setMessage("No se pudieron cargar los escenarios");
+
+      if (error.response) {
+        setMessage(`Error ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+      } else if (error.request) {
+        setMessage("No hubo respuesta del backend al cargar escenarios. Intenta recargar.");
+      } else {
+        setMessage(`Error: ${error.message}`);
+      }
+    } finally {
+      setLoadingScenarios(false);
     }
   };
 
   const handleCreate = async (e) => {
     e.preventDefault();
 
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setMessage("");
+
     try {
       const token = getToken();
 
-      const response = await api.post(
-        "/ScenarioVariable",
-        {
-          scenarioId: Number(scenarioId),
-          name,
-          methodology,
-          phase,
-          targetKpi,
-          weight: Number(weight),
-          baseValue: Number(baseValue),
-          minValue: Number(minValue),
-          maxValue: Number(maxValue),
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const payload = {
+        scenarioId: Number(scenarioId),
+        name,
+        methodology,
+        phase,
+        targetKpi,
+        weight: Number(weight),
+        baseValue: Number(baseValue),
+        minValue: Number(minValue),
+        maxValue: Number(maxValue),
+      };
 
-      setMessage(response.data);
+      const response = await api.post("/ScenarioVariable", payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      console.log("Respuesta backend:", response.data);
+
+      setMessage("Variable creada correctamente");
 
       setScenarioId("");
       setName("");
@@ -73,14 +92,20 @@ function CreateVariablePage() {
       setBaseValue("");
       setMinValue("");
       setMaxValue("");
+
+      await loadScenarios();
     } catch (error) {
       console.error("Error creando variable:", error);
 
       if (error.response) {
         setMessage(`Error ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+      } else if (error.request) {
+        setMessage("La solicitud se envió, pero no hubo respuesta del backend.");
       } else {
-        setMessage("No se pudo crear la variable");
+        setMessage(`Error: ${error.message}`);
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -89,11 +114,17 @@ function CreateVariablePage() {
       <div className="card">
         <h1>Crear variable metodológica</h1>
 
+        <button onClick={loadScenarios} style={{ maxWidth: "220px", marginBottom: "1rem" }}>
+          Recargar escenarios
+        </button>
+
         <form onSubmit={handleCreate}>
           <div className="form-group">
             <label>Escenario</label>
-            <select value={scenarioId} onChange={(e) => setScenarioId(e.target.value)}>
-              <option value="">Seleccione un escenario</option>
+            <select value={scenarioId} onChange={(e) => setScenarioId(e.target.value)} disabled={loadingScenarios}>
+              <option value="">
+                {loadingScenarios ? "Cargando escenarios..." : "Seleccione un escenario"}
+              </option>
               {scenarios.map((scenario) => (
                 <option key={scenario.id} value={scenario.id}>
                   {scenario.name}
@@ -187,7 +218,9 @@ function CreateVariablePage() {
             </div>
           </div>
 
-          <button type="submit">Crear variable</button>
+          <button type="submit" disabled={isSubmitting || loadingScenarios}>
+            {isSubmitting ? "Creando variable..." : "Crear variable"}
+          </button>
         </form>
 
         {message && <div className="message">{message}</div>}

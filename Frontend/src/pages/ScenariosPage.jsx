@@ -7,6 +7,7 @@ import { getToken } from "../utils/auth";
 function ScenariosPage() {
   const [scenarios, setScenarios] = useState([]);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const token = getToken();
   const decoded = token ? jwtDecode(token) : null;
@@ -15,6 +16,9 @@ function ScenariosPage() {
     decoded?.["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"] || "";
 
   const loadScenarios = async () => {
+    setLoading(true);
+    setMessage("");
+
     try {
       const response = await api.get("/Scenario", {
         headers: {
@@ -25,7 +29,16 @@ function ScenariosPage() {
       setScenarios(response.data);
     } catch (error) {
       console.error("Error cargando escenarios:", error);
-      setMessage("No se pudieron cargar los escenarios");
+
+      if (error.response) {
+        setMessage(`Error ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+      } else if (error.request) {
+        setMessage("No hubo respuesta del backend. Intenta de nuevo en unos segundos.");
+      } else {
+        setMessage(`Error: ${error.message}`);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -38,9 +51,16 @@ function ScenariosPage() {
       <div className="card">
         <h1>Escenarios</h1>
         {message && <div className="message">{message}</div>}
+        <button onClick={loadScenarios} style={{ maxWidth: "220px", marginTop: "1rem" }}>
+          Recargar escenarios
+        </button>
       </div>
 
-      {scenarios.length === 0 ? (
+      {loading ? (
+        <div className="card">
+          <p>Cargando escenarios...</p>
+        </div>
+      ) : scenarios.length === 0 ? (
         <div className="card">
           <p>No hay escenarios registrados.</p>
         </div>
