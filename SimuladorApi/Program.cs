@@ -58,7 +58,7 @@ builder.Services.AddCors(options =>
         policy =>
         {
             policy
-                .WithOrigins("http://localhost:5173", "http://localhost:5175", "http://localhost:5174", "https://imperio-digital-one.vercel.app")
+                .WithOrigins("https://imperio-digital-one.vercel.app")
                 .AllowAnyHeader()
                 .AllowAnyMethod();
         });
@@ -86,7 +86,6 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Middleware
 app.UseSwagger();
 app.UseSwaggerUI();
 
