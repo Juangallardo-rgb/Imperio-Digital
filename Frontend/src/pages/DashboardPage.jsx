@@ -1,10 +1,10 @@
-import { jwtDecode } from "jwt-decode";
 import { Link } from "react-router-dom";
+import { getUserFromToken } from "../utils/auth";
 
 function DashboardPage() {
-  const token = localStorage.getItem("token");
+  const user = getUserFromToken();
 
-  if (!token) {
+  if (!user) {
     return (
       <div className="page-container">
         <div className="card">
@@ -14,44 +14,52 @@ function DashboardPage() {
     );
   }
 
-  const decoded = jwtDecode(token);
-
-  const userName =
-    decoded["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"] || "Usuario";
-
-  const email =
-    decoded["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"] || "";
-
-  const role =
-    decoded["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"] || "";
-
   return (
     <div className="page-container">
       <div className="card">
         <h1>Dashboard</h1>
-        <p><strong>Nombre:</strong> {userName}</p>
-        <p><strong>Correo:</strong> {email}</p>
-        <p><strong>Rol:</strong> {role}</p>
+        <p><strong>Nombre:</strong> {user.name}</p>
+        <p><strong>Correo:</strong> {user.email}</p>
+        <p><strong>Rol:</strong> {user.role}</p>
       </div>
 
-      {role === "Docente" && (
+      {user.role === "Docente" && (
         <div className="card">
-          <h2>Opciones de Docente</h2>
-          <ul>
-            <li><Link to="/scenarios">Ver escenarios</Link></li>
-            <li><Link to="/scenarios/create">Crear escenario</Link></li>
-            <li><Link to="/variables/create">Crear variable metodológica</Link></li>
-          </ul>
+          <h2>Panel docente</h2>
+          <p>
+            Desde aquí puedes crear escenarios educativos basados en Design Thinking,
+            configurar fases, revisar opciones y publicar simulaciones para los estudiantes.
+          </p>
+
+          <div className="grid grid-2">
+            <Link className="button-link" to="/design-thinking/scenarios/create">
+              Crear escenario Design Thinking
+            </Link>
+
+            <Link className="button-link" to="/design-thinking/scenarios">
+              Ver mis escenarios
+            </Link>
+          </div>
         </div>
       )}
 
-      {role === "Estudiante" && (
+      {user.role === "Estudiante" && (
         <div className="card">
-          <h2>Opciones de Estudiante</h2>
-          <ul>
-            <li><Link to="/scenarios">Ver escenarios y simular</Link></li>
-            <li><Link to="/simulations/history">Ver historial</Link></li>
-          </ul>
+          <h2>Panel estudiante</h2>
+          <p>
+            Selecciona un escenario publicado, recorre las fases de Design Thinking y
+            recibe resultados con puntaje, KPIs y retroalimentación.
+          </p>
+
+          <div className="grid grid-2">
+            <Link className="button-link" to="/design-thinking/published">
+              Ver escenarios publicados
+            </Link>
+
+            <Link className="button-link" to="/design-thinking/history">
+              Ver historial
+            </Link>
+          </div>
         </div>
       )}
     </div>

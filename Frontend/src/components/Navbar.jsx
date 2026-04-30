@@ -19,22 +19,24 @@ function Navbar() {
     <div className="navbar">
       <div className="navbar-content">
         <div>
-          <strong>Simulador de Transformación Digital</strong>
+          <strong>Imperio Digital</strong>
         </div>
 
         <div className="navbar-links">
           <Link to="/dashboard">Dashboard</Link>
-          <Link to="/scenarios">Escenarios</Link>
 
           {user?.role === "Docente" && (
             <>
-              <Link to="/scenarios/create">Crear escenario</Link>
-              <Link to="/variables/create">Crear variable</Link>
+              <Link to="/design-thinking/scenarios">Mis escenarios</Link>
+              <Link to="/design-thinking/scenarios/create">Crear escenario DT</Link>
             </>
           )}
 
           {user?.role === "Estudiante" && (
-            <Link to="/simulations/history">Historial</Link>
+            <>
+              <Link to="/design-thinking/published">Escenarios publicados</Link>
+              <Link to="/design-thinking/history">Historial</Link>
+            </>
           )}
 
           <span>{user?.name}</span>

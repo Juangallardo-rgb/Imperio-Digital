@@ -3,12 +3,23 @@ import Navbar from "./components/Navbar";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
+
+// Flujo anterior
 import ScenariosPage from "./pages/ScenariosPage";
 import CreateScenarioPage from "./pages/CreateScenarioPage";
 import CreateVariablePage from "./pages/CreateVariablePage";
 import SimulationPage from "./pages/SimulationPage";
 import SimulationHistoryPage from "./pages/SimulationHistoryPage";
 import SimulationDetailPage from "./pages/SimulationDetailPage";
+
+// Nuevo flujo Design Thinking
+import CreateDesignThinkingScenarioPage from "./pages/designThinking/CreateDesignThinkingScenarioPage";
+import MyDesignThinkingScenariosPage from "./pages/designThinking/MyDesignThinkingScenariosPage";
+import DesignThinkingScenarioDetailPage from "./pages/designThinking/DesignThinkingScenarioDetailPage";
+import PublishedDesignThinkingScenariosPage from "./pages/designThinking/PublishedDesignThinkingScenariosPage";
+import DesignThinkingSimulationPage from "./pages/designThinking/DesignThinkingSimulationPage";
+import DesignThinkingResultsPage from "./pages/designThinking/DesignThinkingResultsPage";
+import DesignThinkingHistoryPage from "./pages/designThinking/DesignThinkingHistoryPage";
 
 function App() {
   return (
@@ -26,6 +37,7 @@ function App() {
           }
         />
 
+        {/* Flujo anterior: lo dejamos disponible por seguridad */}
         <Route
           path="/scenarios"
           element={
@@ -76,6 +88,71 @@ function App() {
           element={
             <ProtectedRoute>
               <SimulationDetailPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Nuevo flujo Design Thinking - Docente */}
+        <Route
+          path="/design-thinking/scenarios"
+          element={
+            <ProtectedRoute>
+              <MyDesignThinkingScenariosPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/design-thinking/scenarios/create"
+          element={
+            <ProtectedRoute>
+              <CreateDesignThinkingScenarioPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/design-thinking/scenarios/:id"
+          element={
+            <ProtectedRoute>
+              <DesignThinkingScenarioDetailPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Nuevo flujo Design Thinking - Estudiante */}
+        <Route
+          path="/design-thinking/published"
+          element={
+            <ProtectedRoute>
+              <PublishedDesignThinkingScenariosPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/design-thinking/simulate/:attemptId"
+          element={
+            <ProtectedRoute>
+              <DesignThinkingSimulationPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/design-thinking/results/:attemptId"
+          element={
+            <ProtectedRoute>
+              <DesignThinkingResultsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/design-thinking/history"
+          element={
+            <ProtectedRoute>
+              <DesignThinkingHistoryPage />
             </ProtectedRoute>
           }
         />

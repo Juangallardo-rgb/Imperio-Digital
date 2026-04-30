@@ -50,6 +50,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<ScenarioService>();
+builder.Services.AddScoped<ScoringService>();
+builder.Services.AddScoped<KpiSimulationService>();
+builder.Services.AddScoped<AiFeedbackService>();
+builder.Services.AddScoped<SimulationService>();
 builder.Services.AddHttpClient<OpenRouterService>();
 
 builder.Services.AddCors(options =>
