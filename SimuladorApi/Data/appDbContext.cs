@@ -34,6 +34,12 @@ namespace SimuladorApi.Data
 
         public DbSet<SimulationKpiResult> SimulationKpiResults { get; set; }
 
+        public DbSet<Course> Courses { get; set; }
+
+        public DbSet<CourseEnrollment> CourseEnrollments { get; set; }
+
+        public DbSet<CourseScenario> CourseScenarios { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -130,6 +136,59 @@ namespace SimuladorApi.Data
                 .HasForeignKey(k => k.SimulationAttemptId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+
+            // ==========================
+            // MÓDULO CURSOS
+            // ==========================
+
+            modelBuilder.Entity<Course>()
+                .HasOne(c => c.Teacher)
+                .WithMany()
+                .HasForeignKey(c => c.TeacherId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CourseEnrollment>()
+                .HasOne(e => e.Course)
+                .WithMany(c => c.Enrollments)
+                .HasForeignKey(e => e.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseEnrollment>()
+                .HasOne(e => e.Student)
+                .WithMany()
+                .HasForeignKey(e => e.StudentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CourseScenario>()
+                .HasOne(cs => cs.Course)
+                .WithMany(c => c.CourseScenarios)
+                .HasForeignKey(cs => cs.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CourseScenario>()
+                .HasOne(cs => cs.Scenario)
+                .WithMany()
+                .HasForeignKey(cs => cs.ScenarioId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SimulationAttempt>()
+                .HasOne(a => a.Course)
+                .WithMany()
+                .HasForeignKey(a => a.CourseId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<Course>()
+                .HasIndex(c => c.Code)
+                .IsUnique();
+
+            modelBuilder.Entity<CourseEnrollment>()
+                .HasIndex(e => new { e.CourseId, e.StudentId })
+                .IsUnique();
+
+            modelBuilder.Entity<CourseScenario>()
+                .HasIndex(cs => new { cs.CourseId, cs.ScenarioId })
+                .IsUnique();
+
             // ==========================
             // PRECISIONES DECIMALES
             // ==========================
@@ -164,6 +223,37 @@ namespace SimuladorApi.Data
 
             modelBuilder.Entity<SimulationKpiResult>()
                 .Property(k => k.FinalValue)
+                .HasPrecision(10, 2);
+            modelBuilder.Entity<SimulationAttempt>()
+    .Property(a => a.InitialBudget)
+    .HasPrecision(10, 2);
+
+            modelBuilder.Entity<SimulationAttempt>()
+                .Property(a => a.RemainingBudget)
+                .HasPrecision(10, 2);
+
+            modelBuilder.Entity<SimulationAttempt>()
+                .Property(a => a.InitialTimeWeeks)
+                .HasPrecision(10, 2);
+
+            modelBuilder.Entity<SimulationAttempt>()
+                .Property(a => a.RemainingTimeWeeks)
+                .HasPrecision(10, 2);
+
+            modelBuilder.Entity<SimulationAttempt>()
+                .Property(a => a.RiskLevel)
+                .HasPrecision(10, 2);
+
+            modelBuilder.Entity<ScenarioOption>()
+                .Property(o => o.Cost)
+                .HasPrecision(10, 2);
+
+            modelBuilder.Entity<ScenarioOption>()
+                .Property(o => o.TimeCost)
+                .HasPrecision(10, 2);
+
+            modelBuilder.Entity<ScenarioOption>()
+                .Property(o => o.RiskImpact)
                 .HasPrecision(10, 2);
         }
     }

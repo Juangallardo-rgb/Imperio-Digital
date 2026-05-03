@@ -23,31 +23,33 @@ function Navbar() {
         </div>
 
         <div className="navbar-links">
-          <Link to="/dashboard">Dashboard</Link>
+  <Link to="/dashboard">Dashboard</Link>
 
-          {user?.role === "Docente" && (
-            <>
-              <Link to="/design-thinking/scenarios">Mis escenarios</Link>
-              <Link to="/design-thinking/scenarios/create">Crear escenario DT</Link>
-            </>
-          )}
+  {user?.role === "Docente" && (
+    <>
+      <Link to="/courses">Cursos</Link>
+      <Link to="/design-thinking/scenarios">Escenarios</Link>
+      <Link to="/design-thinking/scenarios/create">Crear escenario</Link>
+    </>
+  )}
 
-          {user?.role === "Estudiante" && (
-            <>
-              <Link to="/design-thinking/published">Escenarios publicados</Link>
-              <Link to="/design-thinking/history">Historial</Link>
-            </>
-          )}
+  {user?.role === "Estudiante" && (
+    <>
+      <Link to="/my-courses">Mis cursos</Link>
+      <Link to="/courses/available">Cursos disponibles</Link>
+      <Link to="/design-thinking/history">Historial</Link>
+    </>
+  )}
 
-          <span>{user?.name}</span>
+  <span>{user?.name}</span>
 
-          <button
-            onClick={handleLogout}
-            style={{ width: "auto", padding: "0.5rem 1rem" }}
-          >
-            Cerrar sesión
-          </button>
-        </div>
+  <button
+    onClick={handleLogout}
+    style={{ width: "auto", padding: "0.5rem 1rem" }}
+  >
+    Cerrar sesión
+  </button>
+</div>
       </div>
     </div>
   );

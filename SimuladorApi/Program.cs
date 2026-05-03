@@ -54,8 +54,12 @@ builder.Services.AddScoped<ScenarioService>();
 builder.Services.AddScoped<ScoringService>();
 builder.Services.AddScoped<KpiSimulationService>();
 builder.Services.AddScoped<AiFeedbackService>();
+builder.Services.AddScoped<AiScenarioContentService>();
 builder.Services.AddScoped<SimulationService>();
+builder.Services.AddScoped<CourseService>();
+
 builder.Services.AddHttpClient<OpenRouterService>();
+builder.Services.AddHttpClient<AiScenarioContentService>();
 
 builder.Services.AddCors(options =>
 {

@@ -74,5 +74,21 @@
         public string ImpactJson { get; set; } = string.Empty;
 
         public int OrderIndex { get; set; }
+
+        public decimal Cost { get; set; }
+
+        public decimal TimeCost { get; set; }
+
+        public decimal RiskImpact { get; set; }
+
+        public string TagsJson { get; set; } = string.Empty;
+
+        public int MaxSelections { get; set; }
+
+        public string ExpectedImpactLevel { get; set; } = string.Empty;
+
+        public string ExpectedEffortLevel { get; set; } = string.Empty;
+
+        public string ExpectedViabilityLevel { get; set; } = string.Empty;
     }
 }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SimuladorApi.Data;
@@ -11,9 +12,11 @@ using SimuladorApi.Data;
 namespace SimuladorApi.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260503035318_AddSimulationResourcesAndOptionMetadataV2")]
+    partial class AddSimulationResourcesAndOptionMetadataV2
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,99 +24,6 @@ namespace SimuladorApi.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("CourseEnrollment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("CourseId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("EnrolledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("StudentId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StudentId");
-
-                    b.HasIndex("CourseId", "StudentId")
-                        .IsUnique();
-
-                    b.ToTable("CourseEnrollments");
-                });
-
-            modelBuilder.Entity("CourseScenario", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("AssignedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("CourseId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("ScenarioId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ScenarioId");
-
-                    b.HasIndex("CourseId", "ScenarioId")
-                        .IsUnique();
-
-                    b.ToTable("CourseScenarios");
-                });
-
-            modelBuilder.Entity("SimuladorApi.Models.Course", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("TeacherId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Code")
-                        .IsUnique();
-
-                    b.HasIndex("TeacherId");
-
-                    b.ToTable("Courses");
-                });
 
             modelBuilder.Entity("SimuladorApi.Models.PhaseCriteriaSetting", b =>
                 {
@@ -450,9 +360,6 @@ namespace SimuladorApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("CourseId")
-                        .HasColumnType("integer");
-
                     b.Property<string>("CurrentKpisJson")
                         .IsRequired()
                         .HasColumnType("text");
@@ -518,8 +425,6 @@ namespace SimuladorApi.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CourseId");
 
                     b.HasIndex("ScenarioId");
 
@@ -650,55 +555,6 @@ namespace SimuladorApi.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("CourseEnrollment", b =>
-                {
-                    b.HasOne("SimuladorApi.Models.Course", "Course")
-                        .WithMany("Enrollments")
-                        .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SimuladorApi.Models.User", "Student")
-                        .WithMany()
-                        .HasForeignKey("StudentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Course");
-
-                    b.Navigation("Student");
-                });
-
-            modelBuilder.Entity("CourseScenario", b =>
-                {
-                    b.HasOne("SimuladorApi.Models.Course", "Course")
-                        .WithMany("CourseScenarios")
-                        .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SimuladorApi.Models.Scenario", "Scenario")
-                        .WithMany()
-                        .HasForeignKey("ScenarioId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Course");
-
-                    b.Navigation("Scenario");
-                });
-
-            modelBuilder.Entity("SimuladorApi.Models.Course", b =>
-                {
-                    b.HasOne("SimuladorApi.Models.User", "Teacher")
-                        .WithMany()
-                        .HasForeignKey("TeacherId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Teacher");
-                });
-
             modelBuilder.Entity("SimuladorApi.Models.PhaseCriteriaSetting", b =>
                 {
                     b.HasOne("SimuladorApi.Models.ScenarioPhaseSetting", "ScenarioPhaseSetting")
@@ -786,11 +642,6 @@ namespace SimuladorApi.Migrations
 
             modelBuilder.Entity("SimuladorApi.Models.SimulationAttempt", b =>
                 {
-                    b.HasOne("SimuladorApi.Models.Course", "Course")
-                        .WithMany()
-                        .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("SimuladorApi.Models.Scenario", "Scenario")
                         .WithMany("SimulationAttempts")
                         .HasForeignKey("ScenarioId")
@@ -802,8 +653,6 @@ namespace SimuladorApi.Migrations
                         .HasForeignKey("StudentId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("Course");
 
                     b.Navigation("Scenario");
 
@@ -849,13 +698,6 @@ namespace SimuladorApi.Migrations
                     b.Navigation("ScenarioVariable");
 
                     b.Navigation("Simulation");
-                });
-
-            modelBuilder.Entity("SimuladorApi.Models.Course", b =>
-                {
-                    b.Navigation("CourseScenarios");
-
-                    b.Navigation("Enrollments");
                 });
 
             modelBuilder.Entity("SimuladorApi.Models.Scenario", b =>

@@ -5,38 +5,67 @@ namespace SimuladorApi.Services
 {
     public class KpiSimulationService
     {
-        public List<SimulationKpiResult> CalculateKpis(
-            int attemptId,
-            List<ScenarioOption> selectedSolutions)
+        public Dictionary<string, decimal> GetDefaultInitialKpis()
         {
-            decimal cartAbandonment = 35;
-            decimal conversionRate = 3;
-            decimal satisfaction = 60;
-            decimal purchaseTime = 6;
-
-            foreach (var solution in selectedSolutions)
+            return new Dictionary<string, decimal>
             {
-                if (string.IsNullOrWhiteSpace(solution.ImpactJson))
+                { "cartAbandonment", 35 },
+                { "conversionRate", 3 },
+                { "satisfaction", 60 },
+                { "purchaseTime", 6 },
+                { "digitalAdoption", 45 }
+            };
+        }
+
+        public string SerializeKpis(Dictionary<string, decimal> kpis)
+        {
+            return JsonSerializer.Serialize(kpis);
+        }
+
+        public Dictionary<string, decimal> DeserializeKpis(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return GetDefaultInitialKpis();
+
+            try
+            {
+                return JsonSerializer.Deserialize<Dictionary<string, decimal>>(json)
+                       ?? GetDefaultInitialKpis();
+            }
+            catch
+            {
+                return GetDefaultInitialKpis();
+            }
+        }
+
+        public Dictionary<string, decimal> ApplyOptionImpacts(
+            Dictionary<string, decimal> currentKpis,
+            List<ScenarioOption> selectedOptions)
+        {
+            var updated = new Dictionary<string, decimal>(currentKpis);
+
+            foreach (var option in selectedOptions)
+            {
+                if (string.IsNullOrWhiteSpace(option.ImpactJson))
                     continue;
 
                 try
                 {
-                    var impact = JsonSerializer.Deserialize<Dictionary<string, decimal>>(solution.ImpactJson);
+                    var impact = JsonSerializer.Deserialize<Dictionary<string, decimal>>(option.ImpactJson);
 
                     if (impact == null)
                         continue;
 
-                    if (impact.ContainsKey("cartAbandonment"))
-                        cartAbandonment += impact["cartAbandonment"];
+                    foreach (var item in impact)
+                    {
+                        if (item.Key == "budgetCost" || item.Key == "timeCost" || item.Key == "risk")
+                            continue;
 
-                    if (impact.ContainsKey("conversionRate"))
-                        conversionRate += impact["conversionRate"];
+                        if (!updated.ContainsKey(item.Key))
+                            updated[item.Key] = 0;
 
-                    if (impact.ContainsKey("satisfaction"))
-                        satisfaction += impact["satisfaction"];
-
-                    if (impact.ContainsKey("purchaseTime"))
-                        purchaseTime += impact["purchaseTime"];
+                        updated[item.Key] += item.Value;
+                    }
                 }
                 catch
                 {
@@ -44,11 +73,46 @@ namespace SimuladorApi.Services
                 }
             }
 
-            if (cartAbandonment < 0) cartAbandonment = 0;
-            if (conversionRate < 0) conversionRate = 0;
-            if (satisfaction > 100) satisfaction = 100;
-            if (satisfaction < 0) satisfaction = 0;
-            if (purchaseTime < 0) purchaseTime = 0;
+            return ClampKpis(updated);
+        }
+
+        public Dictionary<string, decimal> ClampKpis(Dictionary<string, decimal> kpis)
+        {
+            if (kpis.ContainsKey("satisfaction"))
+            {
+                kpis["satisfaction"] = Math.Clamp(kpis["satisfaction"], 0, 100);
+            }
+
+            if (kpis.ContainsKey("digitalAdoption"))
+            {
+                kpis["digitalAdoption"] = Math.Clamp(kpis["digitalAdoption"], 0, 100);
+            }
+
+            if (kpis.ContainsKey("cartAbandonment"))
+            {
+                kpis["cartAbandonment"] = Math.Clamp(kpis["cartAbandonment"], 0, 100);
+            }
+
+            if (kpis.ContainsKey("conversionRate") && kpis["conversionRate"] < 0)
+            {
+                kpis["conversionRate"] = 0;
+            }
+
+            if (kpis.ContainsKey("purchaseTime"))
+            {
+                kpis["purchaseTime"] = Math.Max(1, kpis["purchaseTime"]);
+            }
+
+            return kpis;
+        }
+
+        public List<SimulationKpiResult> BuildKpiResults(
+            int attemptId,
+            string initialKpisJson,
+            string currentKpisJson)
+        {
+            var initial = DeserializeKpis(initialKpisJson);
+            var current = DeserializeKpis(currentKpisJson);
 
             return new List<SimulationKpiResult>
             {
@@ -56,35 +120,48 @@ namespace SimuladorApi.Services
                 {
                     SimulationAttemptId = attemptId,
                     KpiName = "Abandono de carrito",
-                    InitialValue = 35,
-                    FinalValue = Math.Round(cartAbandonment, 2),
+                    InitialValue = GetValue(initial, "cartAbandonment"),
+                    FinalValue = GetValue(current, "cartAbandonment"),
                     Unit = "%"
                 },
                 new()
                 {
                     SimulationAttemptId = attemptId,
                     KpiName = "Conversión",
-                    InitialValue = 3,
-                    FinalValue = Math.Round(conversionRate, 2),
+                    InitialValue = GetValue(initial, "conversionRate"),
+                    FinalValue = GetValue(current, "conversionRate"),
                     Unit = "%"
                 },
                 new()
                 {
                     SimulationAttemptId = attemptId,
                     KpiName = "Satisfacción del usuario",
-                    InitialValue = 60,
-                    FinalValue = Math.Round(satisfaction, 2),
+                    InitialValue = GetValue(initial, "satisfaction"),
+                    FinalValue = GetValue(current, "satisfaction"),
                     Unit = "/100"
                 },
                 new()
                 {
                     SimulationAttemptId = attemptId,
                     KpiName = "Tiempo promedio de compra",
-                    InitialValue = 6,
-                    FinalValue = Math.Round(purchaseTime, 2),
+                    InitialValue = GetValue(initial, "purchaseTime"),
+                    FinalValue = GetValue(current, "purchaseTime"),
                     Unit = "min"
+                },
+                new()
+                {
+                    SimulationAttemptId = attemptId,
+                    KpiName = "Adopción digital",
+                    InitialValue = GetValue(initial, "digitalAdoption"),
+                    FinalValue = GetValue(current, "digitalAdoption"),
+                    Unit = "/100"
                 }
             };
+        }
+
+        private static decimal GetValue(Dictionary<string, decimal> kpis, string key)
+        {
+            return kpis.ContainsKey(key) ? Math.Round(kpis[key], 2) : 0;
         }
     }
 }

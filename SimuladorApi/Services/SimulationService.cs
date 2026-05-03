@@ -44,12 +44,41 @@ namespace SimuladorApi.Services
             if (scenario == null)
                 return (false, "Escenario publicado no encontrado.", 0);
 
+            if (request.CourseId.HasValue)
+            {
+                var isEnrolled = await _context.CourseEnrollments
+                    .AnyAsync(e => e.CourseId == request.CourseId.Value && e.StudentId == studentId);
+
+                if (!isEnrolled)
+                    return (false, "No estás inscrito en este curso.", 0);
+
+                var scenarioAssigned = await _context.CourseScenarios
+                    .AnyAsync(cs => cs.CourseId == request.CourseId.Value && cs.ScenarioId == request.ScenarioId);
+
+                if (!scenarioAssigned)
+                    return (false, "Este escenario no está asignado al curso.", 0);
+            }
+
+            var initialKpis = _kpiSimulationService.GetDefaultInitialKpis();
+            var initialKpisJson = _kpiSimulationService.SerializeKpis(initialKpis);
+
             var attempt = new SimulationAttempt
             {
                 ScenarioId = request.ScenarioId,
                 StudentId = studentId,
+                CourseId = request.CourseId,
                 StartedAt = DateTime.UtcNow,
-                Status = "InProgress"
+                Status = "InProgress",
+                CurrentPhase = "Empatizar",
+                InitialBudget = 100,
+                RemainingBudget = 100,
+                InitialTimeWeeks = 8,
+                RemainingTimeWeeks = 8,
+                RiskLevel = 20,
+                InitialKpisJson = initialKpisJson,
+                CurrentKpisJson = initialKpisJson,
+                DecisionTraceJson = "[]",
+                TriggeredEventsJson = "[]"
             };
 
             _context.SimulationAttempts.Add(attempt);
@@ -73,10 +102,9 @@ namespace SimuladorApi.Services
                 .Select(r => r.PhaseName)
                 .ToList();
 
-            var currentPhase = _phaseOrder
-                .FirstOrDefault(p => !completedPhases.Contains(p));
+            var currentPhase = attempt.CurrentPhase;
 
-            if (currentPhase == null)
+            if (completedPhases.Count >= _phaseOrder.Count || attempt.Status == "Finished")
                 currentPhase = "Resultado";
 
             var currentPhaseOrder = currentPhase == "Resultado"
@@ -96,7 +124,15 @@ namespace SimuladorApi.Services
                     Score = o.Score,
                     IsCorrect = o.IsCorrect,
                     ImpactJson = o.ImpactJson,
-                    OrderIndex = o.OrderIndex
+                    OrderIndex = o.OrderIndex,
+                    Cost = o.Cost,
+                    TimeCost = o.TimeCost,
+                    RiskImpact = o.RiskImpact,
+                    TagsJson = o.TagsJson,
+                    MaxSelections = o.MaxSelections,
+                    ExpectedImpactLevel = o.ExpectedImpactLevel,
+                    ExpectedEffortLevel = o.ExpectedEffortLevel,
+                    ExpectedViabilityLevel = o.ExpectedViabilityLevel
                 })
                 .ToList();
 
@@ -109,7 +145,15 @@ namespace SimuladorApi.Services
                 CurrentPhaseName = currentPhase,
                 CurrentPhaseOrder = currentPhaseOrder,
                 CompletedPhases = completedPhases,
-                CurrentPhaseOptions = options
+                CurrentPhaseOptions = options,
+                InitialBudget = attempt.InitialBudget,
+                RemainingBudget = attempt.RemainingBudget,
+                InitialTimeWeeks = attempt.InitialTimeWeeks,
+                RemainingTimeWeeks = attempt.RemainingTimeWeeks,
+                RiskLevel = attempt.RiskLevel,
+                CurrentKpisJson = attempt.CurrentKpisJson,
+                DecisionTraceJson = attempt.DecisionTraceJson,
+                TriggeredEventsJson = attempt.TriggeredEventsJson
             };
         }
 
@@ -137,16 +181,13 @@ namespace SimuladorApi.Services
             if (!_phaseOrder.Contains(phaseName))
                 return (false, "Fase inválida.", null);
 
+            if (attempt.CurrentPhase != phaseName)
+                return (false, $"La fase actual esperada es {attempt.CurrentPhase}.", null);
+
             var alreadySubmitted = attempt.PhaseResponses.Any(r => r.PhaseName == phaseName);
 
             if (alreadySubmitted)
                 return (false, "Esta fase ya fue enviada.", null);
-
-            var expectedPhase = _phaseOrder
-                .FirstOrDefault(p => !attempt.PhaseResponses.Select(r => r.PhaseName).Contains(p));
-
-            if (expectedPhase != phaseName)
-                return (false, $"La fase actual esperada es {expectedPhase}.", null);
 
             var phaseSetting = attempt.Scenario.PhaseSettings
                 .FirstOrDefault(p => p.PhaseName == phaseName);
@@ -161,6 +202,20 @@ namespace SimuladorApi.Services
             var selectedOptions = allOptionsForPhase
                 .Where(o => request.SelectedOptionIds.Contains(o.Id))
                 .ToList();
+
+            var maxSelectionsValidation = ValidateMaxSelections(phaseName, selectedOptions);
+
+            if (!maxSelectionsValidation.Success)
+                return (false, maxSelectionsValidation.Message, null);
+
+            var totalCost = selectedOptions.Sum(o => o.Cost);
+            var totalTime = selectedOptions.Sum(o => o.TimeCost);
+
+            if (totalCost > attempt.RemainingBudget)
+                return (false, $"Presupuesto insuficiente. Necesitas {totalCost}, pero tienes {attempt.RemainingBudget}.", null);
+
+            if (totalTime > attempt.RemainingTimeWeeks)
+                return (false, $"Tiempo insuficiente. Necesitas {totalTime} semanas, pero tienes {attempt.RemainingTimeWeeks}.", null);
 
             var selectionScore = _scoringService.CalculateSelectionScore(
                 selectedOptions,
@@ -178,10 +233,33 @@ namespace SimuladorApi.Services
                 phaseSetting
             );
 
+            var coherencePenalty = CalculateBasicCoherencePenalty(attempt, phaseName, selectedOptions);
+
+            phaseScore -= coherencePenalty;
+
+            if (phaseScore < 0)
+                phaseScore = 0;
+
             var feedback = await _aiFeedbackService.GeneratePhaseFeedbackAsync(
                 phaseName,
                 phaseScore
             );
+
+            attempt.RemainingBudget -= totalCost;
+            attempt.RemainingTimeWeeks -= totalTime;
+            attempt.RiskLevel += selectedOptions.Sum(o => o.RiskImpact);
+            attempt.RiskLevel = Math.Clamp(attempt.RiskLevel, 0, 100);
+
+            var currentKpis = _kpiSimulationService.DeserializeKpis(attempt.CurrentKpisJson);
+            var updatedKpis = _kpiSimulationService.ApplyOptionImpacts(currentKpis, selectedOptions);
+            attempt.CurrentKpisJson = _kpiSimulationService.SerializeKpis(updatedKpis);
+
+            var triggeredEventJson = ApplySimpleEventIfNeeded(attempt, phaseName, selectedOptions);
+
+            AppendDecisionTrace(attempt, phaseName, selectedOptions, phaseScore, coherencePenalty, totalCost, totalTime);
+
+            var nextPhase = GetNextPhase(phaseName);
+            attempt.CurrentPhase = nextPhase ?? "Resultado";
 
             var phaseResponse = new SimulationPhaseResponse
             {
@@ -198,7 +276,7 @@ namespace SimuladorApi.Services
                         SelectedOptionIdsJson = JsonSerializer.Serialize(request.SelectedOptionIds),
                         TextAnswer = string.Empty,
                         Score = selectionScore,
-                        Feedback = $"Puntaje de selección: {selectionScore}"
+                        Feedback = $"Puntaje de selección: {selectionScore}. Penalización de coherencia: {coherencePenalty}."
                     },
                     new()
                     {
@@ -214,9 +292,6 @@ namespace SimuladorApi.Services
             _context.SimulationPhaseResponses.Add(phaseResponse);
             await _context.SaveChangesAsync();
 
-            var nextPhase = _phaseOrder
-                .FirstOrDefault(p => !attempt.PhaseResponses.Select(r => r.PhaseName).Append(phaseName).Contains(p));
-
             var result = new SubmitPhaseResultDto
             {
                 AttemptId = attempt.Id,
@@ -224,7 +299,12 @@ namespace SimuladorApi.Services
                 Score = phaseScore,
                 Feedback = feedback,
                 NextPhaseName = nextPhase ?? "Resultado",
-                IsLastPhase = nextPhase == null
+                IsLastPhase = nextPhase == null,
+                RemainingBudget = attempt.RemainingBudget,
+                RemainingTimeWeeks = attempt.RemainingTimeWeeks,
+                RiskLevel = attempt.RiskLevel,
+                CurrentKpisJson = attempt.CurrentKpisJson,
+                TriggeredEventJson = triggeredEventJson
             };
 
             return (true, "Fase enviada correctamente.", result);
@@ -235,8 +315,6 @@ namespace SimuladorApi.Services
             var attempt = await _context.SimulationAttempts
                 .Include(a => a.Scenario)
                     .ThenInclude(s => s!.PhaseSettings)
-                .Include(a => a.Scenario)
-                    .ThenInclude(s => s!.Options)
                 .Include(a => a.PhaseResponses)
                     .ThenInclude(r => r.Answers)
                 .Include(a => a.KpiResults)
@@ -256,6 +334,17 @@ namespace SimuladorApi.Services
                 attempt.Scenario.PhaseSettings
             );
 
+            if (attempt.RiskLevel >= 80)
+                finalScore -= 5;
+
+            if (attempt.RemainingBudget <= 5)
+                finalScore -= 3;
+
+            if (attempt.RemainingTimeWeeks <= 0)
+                finalScore -= 3;
+
+            finalScore = Math.Clamp(finalScore, 0, 100);
+
             var phaseScores = attempt.PhaseResponses
                 .Select(r => (r.PhaseName, r.Score))
                 .ToList();
@@ -265,27 +354,11 @@ namespace SimuladorApi.Services
                 phaseScores
             );
 
-            var selectedSolutionIds = attempt.PhaseResponses
-                .SelectMany(r => r.Answers)
-                .Where(a => a.QuestionType == "Selection")
-                .SelectMany(a =>
-                {
-                    try
-                    {
-                        return JsonSerializer.Deserialize<List<int>>(a.SelectedOptionIdsJson) ?? new List<int>();
-                    }
-                    catch
-                    {
-                        return new List<int>();
-                    }
-                })
-                .ToList();
-
-            var selectedSolutions = attempt.Scenario.Options
-                .Where(o => selectedSolutionIds.Contains(o.Id) && o.OptionType == "Solution")
-                .ToList();
-
-            var kpiResults = _kpiSimulationService.CalculateKpis(attempt.Id, selectedSolutions);
+            var kpiResults = _kpiSimulationService.BuildKpiResults(
+                attempt.Id,
+                attempt.InitialKpisJson,
+                attempt.CurrentKpisJson
+            );
 
             if (attempt.KpiResults.Any())
             {
@@ -298,6 +371,7 @@ namespace SimuladorApi.Services
             attempt.FinalFeedback = finalFeedback;
             attempt.FinishedAt = DateTime.UtcNow;
             attempt.Status = "Finished";
+            attempt.CurrentPhase = "Resultado";
 
             await _context.SaveChangesAsync();
 
@@ -360,6 +434,250 @@ namespace SimuladorApi.Services
                     Status = a.Status
                 })
                 .ToListAsync();
+        }
+
+        private (bool Success, string Message) ValidateMaxSelections(
+            string phaseName,
+            List<ScenarioOption> selectedOptions)
+        {
+            var max = phaseName switch
+            {
+                "Empatizar" => 5,
+                "Definir" => 2,
+                "Idear" => 3,
+                "Prototipar" => 4,
+                "Evaluar" => 3,
+                _ => 5
+            };
+
+            if (selectedOptions.Count > max)
+                return (false, $"En la fase {phaseName} solo puedes seleccionar máximo {max} opciones.");
+
+            return (true, "");
+        }
+
+        private string? GetNextPhase(string currentPhase)
+        {
+            var index = _phaseOrder.IndexOf(currentPhase);
+
+            if (index < 0)
+                return null;
+
+            if (index + 1 >= _phaseOrder.Count)
+                return null;
+
+            return _phaseOrder[index + 1];
+        }
+
+        private decimal CalculateBasicCoherencePenalty(
+            SimulationAttempt attempt,
+            string phaseName,
+            List<ScenarioOption> selectedOptions)
+        {
+            if (phaseName == "Empatizar")
+                return 0;
+
+            var previousTags = ExtractTagsFromDecisionTrace(attempt.DecisionTraceJson);
+            var currentTags = selectedOptions
+                .SelectMany(o => DeserializeStringList(o.TagsJson))
+                .Distinct()
+                .ToList();
+
+            if (!previousTags.Any() || !currentTags.Any())
+                return 0;
+
+            var matches = currentTags.Count(t => previousTags.Contains(t));
+
+            if (matches == 0)
+                return 10;
+
+            return 0;
+        }
+
+        private List<string> ExtractTagsFromDecisionTrace(string decisionTraceJson)
+        {
+            if (string.IsNullOrWhiteSpace(decisionTraceJson))
+                return new List<string>();
+
+            try
+            {
+                var trace = JsonSerializer.Deserialize<List<DecisionTraceItem>>(decisionTraceJson)
+                            ?? new List<DecisionTraceItem>();
+
+                return trace
+                    .SelectMany(t => t.Tags)
+                    .Distinct()
+                    .ToList();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        private void AppendDecisionTrace(
+            SimulationAttempt attempt,
+            string phaseName,
+            List<ScenarioOption> selectedOptions,
+            decimal phaseScore,
+            decimal coherencePenalty,
+            decimal totalCost,
+            decimal totalTime)
+        {
+            var trace = new List<DecisionTraceItem>();
+
+            if (!string.IsNullOrWhiteSpace(attempt.DecisionTraceJson))
+            {
+                try
+                {
+                    trace = JsonSerializer.Deserialize<List<DecisionTraceItem>>(attempt.DecisionTraceJson)
+                            ?? new List<DecisionTraceItem>();
+                }
+                catch
+                {
+                    trace = new List<DecisionTraceItem>();
+                }
+            }
+
+            trace.Add(new DecisionTraceItem
+            {
+                PhaseName = phaseName,
+                SelectedOptionIds = selectedOptions.Select(o => o.Id).ToList(),
+                SelectedTexts = selectedOptions.Select(o => o.Text).ToList(),
+                Tags = selectedOptions
+                    .SelectMany(o => DeserializeStringList(o.TagsJson))
+                    .Distinct()
+                    .ToList(),
+                Score = phaseScore,
+                CoherencePenalty = coherencePenalty,
+                BudgetUsed = totalCost,
+                TimeUsed = totalTime
+            });
+
+            attempt.DecisionTraceJson = JsonSerializer.Serialize(trace);
+        }
+
+        private string ApplySimpleEventIfNeeded(
+            SimulationAttempt attempt,
+            string phaseName,
+            List<ScenarioOption> selectedOptions)
+        {
+            var events = new List<SimulationTriggeredEvent>();
+
+            if (!string.IsNullOrWhiteSpace(attempt.TriggeredEventsJson))
+            {
+                try
+                {
+                    events = JsonSerializer.Deserialize<List<SimulationTriggeredEvent>>(attempt.TriggeredEventsJson)
+                             ?? new List<SimulationTriggeredEvent>();
+                }
+                catch
+                {
+                    events = new List<SimulationTriggeredEvent>();
+                }
+            }
+
+            if (events.Any(e => e.TriggerPhase == phaseName))
+                return string.Empty;
+
+            SimulationTriggeredEvent? newEvent = null;
+
+            if (phaseName == "Empatizar")
+            {
+                var selectedTags = selectedOptions
+                    .SelectMany(o => DeserializeStringList(o.TagsJson))
+                    .ToList();
+
+                newEvent = new SimulationTriggeredEvent
+                {
+                    TriggerPhase = "Empatizar",
+                    Title = "Nuevo hallazgo de usuarios",
+                    Description = selectedTags.Contains("mobile")
+                        ? "Nuevo hallazgo: la mayoría de usuarios afectados usa dispositivos móviles. Tu selección previa ya consideró este factor, por lo que reduces el riesgo."
+                        : "Nuevo hallazgo: el 65% de los usuarios afectados usa dispositivos móviles. Será importante considerar la experiencia móvil en las próximas fases.",
+                    BudgetDelta = 0,
+                    TimeDelta = 0,
+                    RiskDelta = selectedTags.Contains("mobile") ? -5 : 5
+                };
+            }
+
+            if (phaseName == "Idear")
+            {
+                newEvent = new SimulationTriggeredEvent
+                {
+                    TriggerPhase = "Idear",
+                    Title = "Cambio de restricción del proyecto",
+                    Description = "La gerencia redujo el presupuesto restante en 10 puntos por ajustes internos.",
+                    BudgetDelta = -10,
+                    TimeDelta = 0,
+                    RiskDelta = 5
+                };
+            }
+
+            if (newEvent == null)
+                return string.Empty;
+
+            attempt.RemainingBudget += newEvent.BudgetDelta;
+            attempt.RemainingTimeWeeks += newEvent.TimeDelta;
+            attempt.RiskLevel += newEvent.RiskDelta;
+
+            attempt.RemainingBudget = Math.Max(0, attempt.RemainingBudget);
+            attempt.RemainingTimeWeeks = Math.Max(0, attempt.RemainingTimeWeeks);
+            attempt.RiskLevel = Math.Clamp(attempt.RiskLevel, 0, 100);
+
+            events.Add(newEvent);
+            attempt.TriggeredEventsJson = JsonSerializer.Serialize(events);
+
+            return JsonSerializer.Serialize(newEvent);
+        }
+
+        private static List<string> DeserializeStringList(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return new List<string>();
+
+            try
+            {
+                return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        private class DecisionTraceItem
+        {
+            public string PhaseName { get; set; } = string.Empty;
+
+            public List<int> SelectedOptionIds { get; set; } = new();
+
+            public List<string> SelectedTexts { get; set; } = new();
+
+            public List<string> Tags { get; set; } = new();
+
+            public decimal Score { get; set; }
+
+            public decimal CoherencePenalty { get; set; }
+
+            public decimal BudgetUsed { get; set; }
+
+            public decimal TimeUsed { get; set; }
+        }
+
+        private class SimulationTriggeredEvent
+        {
+            public string TriggerPhase { get; set; } = string.Empty;
+
+            public string Title { get; set; } = string.Empty;
+
+            public string Description { get; set; } = string.Empty;
+
+            public decimal BudgetDelta { get; set; }
+
+            public decimal TimeDelta { get; set; }
+
+            public decimal RiskDelta { get; set; }
         }
     }
 }

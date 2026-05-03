@@ -21,6 +21,14 @@ import DesignThinkingSimulationPage from "./pages/designThinking/DesignThinkingS
 import DesignThinkingResultsPage from "./pages/designThinking/DesignThinkingResultsPage";
 import DesignThinkingHistoryPage from "./pages/designThinking/DesignThinkingHistoryPage";
 
+import TeacherCoursesPage from "./pages/courses/TeacherCoursesPage";
+import CreateCoursePage from "./pages/courses/CreateCoursePage";
+import CourseDetailPage from "./pages/courses/CourseDetailPage";
+import AvailableCoursesPage from "./pages/courses/AvailableCoursesPage";
+import MyCoursesPage from "./pages/courses/MyCoursesPage";
+import StudentCourseDetailPage from "./pages/courses/StudentCourseDetailPage";
+import CourseResultsPage from "./pages/courses/CourseResultsPage";
+
 function App() {
   return (
     <BrowserRouter>
@@ -156,6 +164,70 @@ function App() {
             </ProtectedRoute>
           }
         />
+        {/* Cursos - Docente */}
+<Route
+  path="/courses"
+  element={
+    <ProtectedRoute>
+      <TeacherCoursesPage />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/courses/create"
+  element={
+    <ProtectedRoute>
+      <CreateCoursePage />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/courses/:id"
+  element={
+    <ProtectedRoute>
+      <CourseDetailPage />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/courses/:id/results"
+  element={
+    <ProtectedRoute>
+      <CourseResultsPage />
+    </ProtectedRoute>
+  }
+/>
+
+{/* Cursos - Estudiante */}
+<Route
+  path="/courses/available"
+  element={
+    <ProtectedRoute>
+      <AvailableCoursesPage />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/my-courses"
+  element={
+    <ProtectedRoute>
+      <MyCoursesPage />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/my-courses/:id"
+  element={
+    <ProtectedRoute>
+      <StudentCourseDetailPage />
+    </ProtectedRoute>
+  }
+/>
       </Routes>
     </BrowserRouter>
   );

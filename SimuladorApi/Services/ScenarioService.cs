@@ -8,10 +8,14 @@ namespace SimuladorApi.Services
     public class ScenarioService
     {
         private readonly AppDbContext _context;
+        private readonly AiScenarioContentService _aiScenarioContentService;
 
-        public ScenarioService(AppDbContext context)
+        public ScenarioService(
+            AppDbContext context,
+            AiScenarioContentService aiScenarioContentService)
         {
             _context = context;
+            _aiScenarioContentService = aiScenarioContentService;
         }
 
         public async Task<ScenarioDetailDto> CreateDesignThinkingScenarioAsync(
@@ -38,7 +42,17 @@ namespace SimuladorApi.Services
             await _context.SaveChangesAsync();
 
             AddDefaultPhaseSettings(scenario.Id);
-            AddBaseScenarioOptions(scenario.Id);
+
+            try
+            {
+                var aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
+
+                _context.ScenarioOptions.AddRange(aiOptions);
+            }
+            catch
+            {
+                AddBaseScenarioOptions(scenario.Id);
+            }
 
             await _context.SaveChangesAsync();
 
@@ -198,7 +212,15 @@ namespace SimuladorApi.Services
                 Score = request.Score,
                 IsCorrect = request.IsCorrect,
                 ImpactJson = request.ImpactJson,
-                OrderIndex = request.OrderIndex
+                OrderIndex = request.OrderIndex,
+                Cost = 0,
+                TimeCost = 0,
+                RiskImpact = request.IsCorrect ? 0 : 5,
+                TagsJson = "[]",
+                MaxSelections = 0,
+                ExpectedImpactLevel = "",
+                ExpectedEffortLevel = "",
+                ExpectedViabilityLevel = ""
             };
 
             _context.ScenarioOptions.Add(option);
@@ -247,13 +269,28 @@ namespace SimuladorApi.Services
 
             _context.ScenarioOptions.RemoveRange(scenario.Options);
 
-            AddBaseScenarioOptions(scenarioId);
+            try
+            {
+                var aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
 
-            scenario.UpdatedAt = DateTime.UtcNow;
+                _context.ScenarioOptions.AddRange(aiOptions);
 
-            await _context.SaveChangesAsync();
+                scenario.UpdatedAt = DateTime.UtcNow;
 
-            return (true, "Opciones base regeneradas correctamente.");
+                await _context.SaveChangesAsync();
+
+                return (true, "Opciones personalizadas generadas correctamente con IA.");
+            }
+            catch (Exception ex)
+            {
+                AddBaseScenarioOptions(scenarioId);
+
+                scenario.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                return (true, $"No se pudo generar con IA. Se cargaron opciones base. Detalle: {ex.Message}");
+            }
         }
 
         private void AddDefaultPhaseSettings(int scenarioId)
@@ -335,200 +372,467 @@ namespace SimuladorApi.Services
         private void AddBaseScenarioOptions(int scenarioId)
         {
             var options = new List<ScenarioOption>
-            {
-                // EMPATIZAR - Evidencias
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Empatizar",
-                    OptionType = "Evidence",
-                    Text = "Los usuarios abandonan el proceso cuando aparecen costos adicionales al final.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 1
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Empatizar",
-                    OptionType = "Evidence",
-                    Text = "Los usuarios indican que el proceso digital es lento y poco claro.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 2
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Empatizar",
-                    OptionType = "Evidence",
-                    Text = "El logo de la empresa no utiliza colores modernos.",
-                    IsCorrect = false,
-                    Score = 0,
-                    OrderIndex = 3
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Empatizar",
-                    OptionType = "PainPoint",
-                    Text = "Falta de transparencia en costos y tiempos del servicio.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 4
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Empatizar",
-                    OptionType = "PainPoint",
-                    Text = "Baja claridad del flujo digital para completar la acción principal.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 5
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Empatizar",
-                    OptionType = "PainPoint",
-                    Text = "Necesidad de publicar más contenido en redes sociales.",
-                    IsCorrect = false,
-                    Score = 0,
-                    OrderIndex = 6
-                },
+    {
+        // =========================
+        // EMPATIZAR - EVIDENCIAS
+        // =========================
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "Evidence",
+            Text = "Los usuarios abandonan el proceso cuando aparecen costos adicionales al final.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 1,
+            TagsJson = "[\"hidden-costs\",\"trust\",\"checkout\",\"conversion\"]",
+            MaxSelections = 3,
+            RiskImpact = -2
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "Evidence",
+            Text = "Los usuarios indican que el proceso digital es lento y poco claro.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 2,
+            TagsJson = "[\"ux\",\"checkout\",\"purchase-time\",\"friction\"]",
+            MaxSelections = 3,
+            RiskImpact = -2
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "Evidence",
+            Text = "Varios usuarios reportan dificultades al completar el proceso desde dispositivos móviles.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 3,
+            TagsJson = "[\"mobile\",\"ux\",\"checkout\",\"friction\"]",
+            MaxSelections = 3,
+            RiskImpact = -3
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "Evidence",
+            Text = "El logo de la empresa no utiliza colores modernos.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 4,
+            TagsJson = "[\"branding\"]",
+            MaxSelections = 3,
+            RiskImpact = 5
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "Evidence",
+            Text = "El equipo de marketing quiere publicar más contenido institucional.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 5,
+            TagsJson = "[\"social-media\",\"marketing\"]",
+            MaxSelections = 3,
+            RiskImpact = 5
+        },
 
-                // DEFINIR
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Definir",
-                    OptionType = "ProblemStatement",
-                    Text = "Los usuarios digitales necesitan un proceso claro y transparente porque la falta de información reduce la confianza y aumenta el abandono.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 1
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Definir",
-                    OptionType = "ProblemStatement",
-                    Text = "La empresa necesita cambiar su imagen porque el diseño visual no parece moderno.",
-                    IsCorrect = false,
-                    Score = 0,
-                    OrderIndex = 2
-                },
+        // =========================
+        // EMPATIZAR - DOLORES
+        // =========================
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "PainPoint",
+            Text = "Falta de transparencia en costos y tiempos del servicio.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 6,
+            TagsJson = "[\"hidden-costs\",\"trust\",\"delivery-time\"]",
+            MaxSelections = 2,
+            RiskImpact = -2
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "PainPoint",
+            Text = "Confusión durante el flujo digital para completar la acción principal.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 7,
+            TagsJson = "[\"ux\",\"checkout\",\"friction\"]",
+            MaxSelections = 2,
+            RiskImpact = -2
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Empatizar",
+            OptionType = "PainPoint",
+            Text = "Necesidad de cambiar la paleta de colores de la marca.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 8,
+            TagsJson = "[\"branding\"]",
+            MaxSelections = 2,
+            RiskImpact = 5
+        },
 
-                // IDEAR - Soluciones
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Idear",
-                    OptionType = "Solution",
-                    Text = "Mostrar costos completos desde el inicio del proceso.",
-                    IsCorrect = true,
-                    Score = 100,
-                    ImpactJson = "{\"cartAbandonment\":-5,\"conversionRate\":0.8,\"satisfaction\":7,\"purchaseTime\":-0.5}",
-                    OrderIndex = 1
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Idear",
-                    OptionType = "Solution",
-                    Text = "Simplificar el flujo de compra o solicitud digital.",
-                    IsCorrect = true,
-                    Score = 100,
-                    ImpactJson = "{\"cartAbandonment\":-8,\"conversionRate\":1.2,\"satisfaction\":10,\"purchaseTime\":-1.5}",
-                    OrderIndex = 2
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Idear",
-                    OptionType = "Solution",
-                    Text = "Crear una campaña únicamente centrada en rediseñar el logo.",
-                    IsCorrect = false,
-                    Score = 0,
-                    ImpactJson = "{\"cartAbandonment\":0,\"conversionRate\":0,\"satisfaction\":1,\"purchaseTime\":0}",
-                    OrderIndex = 3
-                },
+        // =========================
+        // DEFINIR
+        // =========================
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Definir",
+            OptionType = "ProblemStatement",
+            Text = "Los usuarios digitales necesitan un proceso claro y transparente porque la falta de información reduce la confianza y aumenta el abandono.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 1,
+            TagsJson = "[\"hidden-costs\",\"trust\",\"checkout\",\"conversion\"]",
+            MaxSelections = 1,
+            RiskImpact = -2
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Definir",
+            OptionType = "ProblemStatement",
+            Text = "Los usuarios móviles necesitan una experiencia más simple porque el proceso actual genera fricción y abandono.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 2,
+            TagsJson = "[\"mobile\",\"ux\",\"checkout\",\"friction\"]",
+            MaxSelections = 1,
+            RiskImpact = -2
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Definir",
+            OptionType = "ProblemStatement",
+            Text = "La empresa necesita cambiar su imagen porque el diseño visual no parece moderno.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 3,
+            TagsJson = "[\"branding\"]",
+            MaxSelections = 1,
+            RiskImpact = 8
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Definir",
+            OptionType = "ProblemStatement",
+            Text = "La empresa necesita publicar más en redes sociales para mejorar su presencia digital.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 4,
+            TagsJson = "[\"social-media\",\"marketing\"]",
+            MaxSelections = 1,
+            RiskImpact = 8
+        },
 
-                // PROTOTIPAR
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Prototipar",
-                    OptionType = "PrototypeFeature",
-                    Text = "Pantalla con resumen de costos, tiempos y acción principal visible.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 1
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Prototipar",
-                    OptionType = "PrototypeFeature",
-                    Text = "Formulario reducido con solo los datos necesarios para completar la acción.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 2
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Prototipar",
-                    OptionType = "UserFlowStep",
-                    Text = "Usuario revisa información → confirma datos → visualiza costos → completa acción → recibe confirmación.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 3
-                },
+        // =========================
+        // IDEAR - SOLUCIONES
+        // =========================
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Idear",
+            OptionType = "Solution",
+            Text = "Mostrar costos completos desde el inicio del proceso.",
+            IsCorrect = true,
+            Score = 100,
+            ImpactJson = "{\"cartAbandonment\":-5,\"conversionRate\":0.8,\"satisfaction\":7,\"purchaseTime\":-0.5,\"digitalAdoption\":4}",
+            OrderIndex = 1,
+            Cost = 25,
+            TimeCost = 2,
+            RiskImpact = 5,
+            TagsJson = "[\"hidden-costs\",\"trust\",\"checkout\",\"conversion\"]",
+            MaxSelections = 3,
+            ExpectedImpactLevel = "Alto",
+            ExpectedEffortLevel = "Bajo",
+            ExpectedViabilityLevel = "Alta"
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Idear",
+            OptionType = "Solution",
+            Text = "Simplificar el flujo de compra o solicitud digital.",
+            IsCorrect = true,
+            Score = 100,
+            ImpactJson = "{\"cartAbandonment\":-8,\"conversionRate\":1.2,\"satisfaction\":10,\"purchaseTime\":-1.5,\"digitalAdoption\":7}",
+            OrderIndex = 2,
+            Cost = 45,
+            TimeCost = 4,
+            RiskImpact = 12,
+            TagsJson = "[\"ux\",\"checkout\",\"friction\",\"conversion\"]",
+            MaxSelections = 3,
+            ExpectedImpactLevel = "Alto",
+            ExpectedEffortLevel = "Medio",
+            ExpectedViabilityLevel = "Media"
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Idear",
+            OptionType = "Solution",
+            Text = "Optimizar la experiencia móvil del proceso principal.",
+            IsCorrect = true,
+            Score = 100,
+            ImpactJson = "{\"cartAbandonment\":-6,\"conversionRate\":1.0,\"satisfaction\":8,\"purchaseTime\":-1.0,\"digitalAdoption\":8}",
+            OrderIndex = 3,
+            Cost = 40,
+            TimeCost = 3,
+            RiskImpact = 10,
+            TagsJson = "[\"mobile\",\"ux\",\"checkout\",\"digital-adoption\"]",
+            MaxSelections = 3,
+            ExpectedImpactLevel = "Alto",
+            ExpectedEffortLevel = "Medio",
+            ExpectedViabilityLevel = "Media"
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Idear",
+            OptionType = "Solution",
+            Text = "Implementar chatbot de soporte para dudas frecuentes.",
+            IsCorrect = true,
+            Score = 80,
+            ImpactJson = "{\"cartAbandonment\":-3,\"conversionRate\":0.4,\"satisfaction\":5,\"purchaseTime\":-0.2,\"digitalAdoption\":3}",
+            OrderIndex = 4,
+            Cost = 35,
+            TimeCost = 3,
+            RiskImpact = 8,
+            TagsJson = "[\"support\",\"automation\",\"trust\"]",
+            MaxSelections = 3,
+            ExpectedImpactLevel = "Medio",
+            ExpectedEffortLevel = "Medio",
+            ExpectedViabilityLevel = "Alta"
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Idear",
+            OptionType = "Solution",
+            Text = "Desarrollar una aplicación móvil completamente nueva.",
+            IsCorrect = false,
+            Score = 30,
+            ImpactJson = "{\"cartAbandonment\":-2,\"conversionRate\":0.2,\"satisfaction\":3,\"purchaseTime\":-0.2,\"digitalAdoption\":5}",
+            OrderIndex = 5,
+            Cost = 90,
+            TimeCost = 12,
+            RiskImpact = 25,
+            TagsJson = "[\"mobile\",\"high-cost\",\"high-risk\"]",
+            MaxSelections = 3,
+            ExpectedImpactLevel = "Alto",
+            ExpectedEffortLevel = "Alto",
+            ExpectedViabilityLevel = "Baja"
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Idear",
+            OptionType = "Solution",
+            Text = "Realizar únicamente un rediseño visual de colores y banners.",
+            IsCorrect = false,
+            Score = 10,
+            ImpactJson = "{\"cartAbandonment\":0,\"conversionRate\":0,\"satisfaction\":1,\"purchaseTime\":0,\"digitalAdoption\":0}",
+            OrderIndex = 6,
+            Cost = 60,
+            TimeCost = 5,
+            RiskImpact = 12,
+            TagsJson = "[\"branding\"]",
+            MaxSelections = 3,
+            ExpectedImpactLevel = "Bajo",
+            ExpectedEffortLevel = "Medio",
+            ExpectedViabilityLevel = "Media"
+        },
 
-                // EVALUAR
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Evaluar",
-                    OptionType = "KPI",
-                    Text = "Tasa de abandono del proceso.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 1
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Evaluar",
-                    OptionType = "KPI",
-                    Text = "Tasa de conversión.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 2
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Evaluar",
-                    OptionType = "KPI",
-                    Text = "Satisfacción del usuario.",
-                    IsCorrect = true,
-                    Score = 100,
-                    OrderIndex = 3
-                },
-                new()
-                {
-                    ScenarioId = scenarioId,
-                    PhaseName = "Evaluar",
-                    OptionType = "KPI",
-                    Text = "Cantidad de colores usados en la marca.",
-                    IsCorrect = false,
-                    Score = 0,
-                    OrderIndex = 4
-                }
-            };
+        // =========================
+        // PROTOTIPAR
+        // =========================
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Prototipar",
+            OptionType = "PrototypeFeature",
+            Text = "Pantalla con resumen claro de costos, tiempos y acción principal visible.",
+            IsCorrect = true,
+            Score = 100,
+            ImpactJson = "{\"cartAbandonment\":-3,\"conversionRate\":0.5,\"satisfaction\":5,\"purchaseTime\":-0.3,\"digitalAdoption\":3}",
+            OrderIndex = 1,
+            Cost = 15,
+            TimeCost = 1,
+            RiskImpact = 4,
+            TagsJson = "[\"hidden-costs\",\"trust\",\"checkout\"]",
+            MaxSelections = 4
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Prototipar",
+            OptionType = "PrototypeFeature",
+            Text = "Formulario reducido con solo los datos necesarios para completar la acción.",
+            IsCorrect = true,
+            Score = 100,
+            ImpactJson = "{\"cartAbandonment\":-3,\"conversionRate\":0.5,\"satisfaction\":4,\"purchaseTime\":-0.7,\"digitalAdoption\":4}",
+            OrderIndex = 2,
+            Cost = 20,
+            TimeCost = 2,
+            RiskImpact = 6,
+            TagsJson = "[\"ux\",\"checkout\",\"friction\"]",
+            MaxSelections = 4
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Prototipar",
+            OptionType = "PrototypeFeature",
+            Text = "Vista optimizada para dispositivos móviles.",
+            IsCorrect = true,
+            Score = 100,
+            ImpactJson = "{\"cartAbandonment\":-4,\"conversionRate\":0.7,\"satisfaction\":6,\"purchaseTime\":-0.8,\"digitalAdoption\":6}",
+            OrderIndex = 3,
+            Cost = 25,
+            TimeCost = 2,
+            RiskImpact = 7,
+            TagsJson = "[\"mobile\",\"ux\",\"digital-adoption\"]",
+            MaxSelections = 4
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Prototipar",
+            OptionType = "PrototypeFeature",
+            Text = "Cambio completo de colores, tipografías y banners promocionales.",
+            IsCorrect = false,
+            Score = 10,
+            ImpactJson = "{\"cartAbandonment\":0,\"conversionRate\":0,\"satisfaction\":1,\"purchaseTime\":0,\"digitalAdoption\":0}",
+            OrderIndex = 4,
+            Cost = 30,
+            TimeCost = 2,
+            RiskImpact = 8,
+            TagsJson = "[\"branding\"]",
+            MaxSelections = 4
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Prototipar",
+            OptionType = "UserFlowStep",
+            Text = "Usuario agrega producto → ve costos completos → confirma datos → realiza pago → recibe confirmación.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 5,
+            Cost = 0,
+            TimeCost = 0,
+            RiskImpact = -2,
+            TagsJson = "[\"checkout\",\"trust\",\"ux\"]",
+            MaxSelections = 4
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Prototipar",
+            OptionType = "UserFlowStep",
+            Text = "Usuario ve banners → lee noticias corporativas → cambia colores → revisa redes sociales.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 6,
+            Cost = 0,
+            TimeCost = 0,
+            RiskImpact = 5,
+            TagsJson = "[\"branding\",\"social-media\"]",
+            MaxSelections = 4
+        },
+
+        // =========================
+        // EVALUAR
+        // =========================
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Evaluar",
+            OptionType = "KPI",
+            Text = "Tasa de abandono del proceso.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 1,
+            TagsJson = "[\"cartAbandonment\",\"checkout\",\"conversion\"]",
+            MaxSelections = 3
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Evaluar",
+            OptionType = "KPI",
+            Text = "Tasa de conversión.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 2,
+            TagsJson = "[\"conversion\",\"checkout\"]",
+            MaxSelections = 3
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Evaluar",
+            OptionType = "KPI",
+            Text = "Satisfacción del usuario.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 3,
+            TagsJson = "[\"satisfaction\",\"ux\",\"trust\"]",
+            MaxSelections = 3
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Evaluar",
+            OptionType = "KPI",
+            Text = "Tiempo promedio para completar la acción digital.",
+            IsCorrect = true,
+            Score = 100,
+            OrderIndex = 4,
+            TagsJson = "[\"purchaseTime\",\"ux\",\"friction\"]",
+            MaxSelections = 3
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Evaluar",
+            OptionType = "KPI",
+            Text = "Cantidad de colores nuevos en el sitio.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 5,
+            TagsJson = "[\"branding\"]",
+            MaxSelections = 3
+        },
+        new()
+        {
+            ScenarioId = scenarioId,
+            PhaseName = "Evaluar",
+            OptionType = "KPI",
+            Text = "Cantidad de publicaciones institucionales en redes.",
+            IsCorrect = false,
+            Score = 0,
+            OrderIndex = 6,
+            TagsJson = "[\"social-media\"]",
+            MaxSelections = 3
+        }
+    };
 
             _context.ScenarioOptions.AddRange(options);
         }
@@ -582,7 +886,15 @@ namespace SimuladorApi.Services
                         Score = o.Score,
                         IsCorrect = o.IsCorrect,
                         ImpactJson = o.ImpactJson,
-                        OrderIndex = o.OrderIndex
+                        OrderIndex = o.OrderIndex,
+                        Cost = o.Cost,
+                        TimeCost = o.TimeCost,
+                        RiskImpact = o.RiskImpact,
+                        TagsJson = o.TagsJson,
+                        MaxSelections = o.MaxSelections,
+                        ExpectedImpactLevel = o.ExpectedImpactLevel,
+                        ExpectedEffortLevel = o.ExpectedEffortLevel,
+                        ExpectedViabilityLevel = o.ExpectedViabilityLevel
                     })
                     .ToList()
             };
