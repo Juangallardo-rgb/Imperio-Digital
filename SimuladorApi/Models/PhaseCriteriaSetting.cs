@@ -8,6 +8,10 @@
 
         public ScenarioPhaseSetting? ScenarioPhaseSetting { get; set; }
 
+        public int? MethodologyPhaseCriteriaId { get; set; }
+
+        public MethodologyPhaseCriteria? MethodologyPhaseCriteria { get; set; }
+
         public string CriterionName { get; set; } = string.Empty;
 
         public decimal CriterionWeight { get; set; }

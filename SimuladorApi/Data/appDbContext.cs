@@ -40,6 +40,12 @@ namespace SimuladorApi.Data
 
         public DbSet<CourseScenario> CourseScenarios { get; set; }
 
+        public DbSet<Methodology> Methodologies { get; set; }
+
+        public DbSet<MethodologyPhase> MethodologyPhases { get; set; }
+
+        public DbSet<MethodologyPhaseCriteria> MethodologyPhaseCriteria { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -135,6 +141,54 @@ namespace SimuladorApi.Data
                 .WithMany(a => a.KpiResults)
                 .HasForeignKey(k => k.SimulationAttemptId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // ==========================
+            // MÓDULO METODOLOGÍAS
+            // ==========================
+
+            modelBuilder.Entity<Methodology>()
+                .HasIndex(m => m.Code)
+                .IsUnique();
+
+            modelBuilder.Entity<MethodologyPhase>()
+                .HasOne(p => p.Methodology)
+                .WithMany(m => m.Phases)
+                .HasForeignKey(p => p.MethodologyId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<MethodologyPhase>()
+                .HasIndex(p => new { p.MethodologyId, p.PhaseOrder })
+                .IsUnique();
+
+            modelBuilder.Entity<MethodologyPhaseCriteria>()
+                .HasOne(c => c.MethodologyPhase)
+                .WithMany(p => p.Criteria)
+                .HasForeignKey(c => c.MethodologyPhaseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Scenario>()
+                .HasOne(s => s.MethodologyCatalog)
+                .WithMany(m => m.Scenarios)
+                .HasForeignKey(s => s.MethodologyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ScenarioPhaseSetting>()
+                .HasOne(p => p.MethodologyPhase)
+                .WithMany()
+                .HasForeignKey(p => p.MethodologyPhaseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PhaseCriteriaSetting>()
+                .HasOne(c => c.MethodologyPhaseCriteria)
+                .WithMany()
+                .HasForeignKey(c => c.MethodologyPhaseCriteriaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ScenarioOption>()
+                .HasOne(o => o.MethodologyPhase)
+                .WithMany()
+                .HasForeignKey(o => o.MethodologyPhaseId)
+                .OnDelete(DeleteBehavior.Restrict);
 
 
             // ==========================
@@ -255,6 +309,14 @@ namespace SimuladorApi.Data
             modelBuilder.Entity<ScenarioOption>()
                 .Property(o => o.RiskImpact)
                 .HasPrecision(10, 2);
+
+            modelBuilder.Entity<MethodologyPhase>()
+    .Property(p => p.DefaultWeight)
+    .HasPrecision(5, 2);
+
+            modelBuilder.Entity<MethodologyPhaseCriteria>()
+                .Property(c => c.DefaultWeight)
+                .HasPrecision(5, 2);
         }
     }
 }

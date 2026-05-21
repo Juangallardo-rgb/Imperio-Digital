@@ -22,6 +22,10 @@
 
         public string Methodology { get; set; } = "DesignThinking";
 
+        public int? MethodologyId { get; set; }
+
+        public Methodology? MethodologyCatalog { get; set; }
+
         public string Difficulty { get; set; } = "Media";
 
         public bool IsPublished { get; set; } = false;

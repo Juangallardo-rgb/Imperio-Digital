@@ -126,8 +126,8 @@ function CourseResultsPage() {
                           {simulation.finalScore}
                         </div>
 
-                        <Link to={`/design-thinking/results/${simulation.attemptId}`}>
-                          Ver detalle
+                        <Link to={`/courses/${id}/results/${simulation.attemptId}`}>
+                         Ver detalle
                         </Link>
                       </div>
                     ))}

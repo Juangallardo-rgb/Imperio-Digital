@@ -29,6 +29,24 @@ namespace SimuladorApi.Controllers
         }
 
         [Authorize(Roles = "Docente")]
+        [HttpGet("{courseId}/attempts/{attemptId}/results")]
+        public async Task<IActionResult> GetAttemptResultsForTeacher(int courseId, int attemptId)
+        {
+            var teacherId = GetUserId();
+
+            var result = await _courseService.GetAttemptResultsForTeacherAsync(
+                courseId,
+                attemptId,
+                teacherId
+            );
+
+            if (result == null)
+                return NotFound("Resultados no encontrados para este curso.");
+
+            return Ok(result);
+        }
+
+        [Authorize(Roles = "Docente")]
         [HttpGet("my")]
         public async Task<IActionResult> GetMyCourses()
         {

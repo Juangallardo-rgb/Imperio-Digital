@@ -92,6 +92,8 @@ namespace SimuladorApi.Services
             var attempt = await _context.SimulationAttempts
                 .Include(a => a.Scenario)
                     .ThenInclude(s => s!.Options)
+                .Include(a => a.Scenario)
+                    .ThenInclude(s => s!.PhaseSettings)
                 .Include(a => a.PhaseResponses)
                 .FirstOrDefaultAsync(a => a.Id == attemptId && a.StudentId == studentId);
 
@@ -104,12 +106,14 @@ namespace SimuladorApi.Services
 
             var currentPhase = attempt.CurrentPhase;
 
-            if (completedPhases.Count >= _phaseOrder.Count || attempt.Status == "Finished")
+            var phaseOrder = GetScenarioPhaseOrder(attempt.Scenario);
+
+            if (completedPhases.Count >= phaseOrder.Count || attempt.Status == "Finished")
                 currentPhase = "Resultado";
 
             var currentPhaseOrder = currentPhase == "Resultado"
-                ? 6
-                : _phaseOrder.IndexOf(currentPhase) + 1;
+                ? phaseOrder.Count + 1
+                : phaseOrder.IndexOf(currentPhase) + 1;
 
             var options = attempt.Scenario.Options
                 .Where(o => o.PhaseName == currentPhase)
@@ -163,6 +167,7 @@ namespace SimuladorApi.Services
             string phaseName,
             SubmitPhaseDto request)
         {
+
             var attempt = await _context.SimulationAttempts
                 .Include(a => a.Scenario)
                     .ThenInclude(s => s!.PhaseSettings)
@@ -178,8 +183,10 @@ namespace SimuladorApi.Services
             if (attempt.Status != "InProgress")
                 return (false, "La simulación ya fue finalizada.", null);
 
-            if (!_phaseOrder.Contains(phaseName))
-                return (false, "Fase inválida.", null);
+            var phaseOrder = GetScenarioPhaseOrder(attempt.Scenario);
+
+            if (!phaseOrder.Contains(phaseName))
+                return (false, "Fase inválida para la metodología de este escenario.", null);
 
             if (attempt.CurrentPhase != phaseName)
                 return (false, $"La fase actual esperada es {attempt.CurrentPhase}.", null);
@@ -203,7 +210,7 @@ namespace SimuladorApi.Services
                 .Where(o => request.SelectedOptionIds.Contains(o.Id))
                 .ToList();
 
-            var maxSelectionsValidation = ValidateMaxSelections(phaseName, selectedOptions);
+            var maxSelectionsValidation = ValidateMaxSelections(phaseName, selectedOptions, allOptionsForPhase);
 
             if (!maxSelectionsValidation.Success)
                 return (false, maxSelectionsValidation.Message, null);
@@ -258,7 +265,7 @@ namespace SimuladorApi.Services
 
             AppendDecisionTrace(attempt, phaseName, selectedOptions, phaseScore, coherencePenalty, totalCost, totalTime);
 
-            var nextPhase = GetNextPhase(phaseName);
+            var nextPhase = GetNextPhase(phaseName, phaseOrder);
             attempt.CurrentPhase = nextPhase ?? "Resultado";
 
             var phaseResponse = new SimulationPhaseResponse
@@ -323,8 +330,10 @@ namespace SimuladorApi.Services
             if (attempt == null || attempt.Scenario == null)
                 return (false, "Simulación no encontrada.");
 
-            if (attempt.PhaseResponses.Count < 5)
-                return (false, "Debe completar las 5 fases antes de finalizar.");
+            var phaseOrder = GetScenarioPhaseOrder(attempt.Scenario);
+
+            if (attempt.PhaseResponses.Count < phaseOrder.Count)
+                return (false, $"Debe completar las {phaseOrder.Count} fases antes de finalizar.");
 
             if (attempt.Status == "Finished")
                 return (true, "La simulación ya estaba finalizada.");
@@ -382,12 +391,14 @@ namespace SimuladorApi.Services
         {
             var attempt = await _context.SimulationAttempts
                 .Include(a => a.Scenario)
+                    .ThenInclude(s => s!.PhaseSettings)
                 .Include(a => a.PhaseResponses)
                 .Include(a => a.KpiResults)
                 .FirstOrDefaultAsync(a => a.Id == attemptId && a.StudentId == studentId);
 
             if (attempt == null || attempt.Scenario == null)
                 return null;
+            var phaseOrder = GetScenarioPhaseOrder(attempt.Scenario);
 
             return new SimulationResultsDto
             {
@@ -397,7 +408,7 @@ namespace SimuladorApi.Services
                 FinalScore = attempt.FinalScore,
                 FinalFeedback = attempt.FinalFeedback,
                 PhaseScores = attempt.PhaseResponses
-                    .OrderBy(p => _phaseOrder.IndexOf(p.PhaseName))
+                    .OrderBy(p => phaseOrder.IndexOf(p.PhaseName))
                     .Select(p => new PhaseScoreDto
                     {
                         PhaseName = p.PhaseName,
@@ -436,37 +447,44 @@ namespace SimuladorApi.Services
                 .ToListAsync();
         }
 
+
+        private List<string> GetScenarioPhaseOrder(Scenario scenario)
+        {
+            return scenario.PhaseSettings
+                .Where(p => p.IsEnabled)
+                .OrderBy(p => p.PhaseOrder)
+                .Select(p => p.PhaseName)
+                .ToList();
+        }
+
         private (bool Success, string Message) ValidateMaxSelections(
             string phaseName,
-            List<ScenarioOption> selectedOptions)
+            List<ScenarioOption> selectedOptions,
+            List<ScenarioOption> allOptionsForPhase)
         {
-            var max = phaseName switch
-            {
-                "Empatizar" => 5,
-                "Definir" => 2,
-                "Idear" => 3,
-                "Prototipar" => 4,
-                "Evaluar" => 3,
-                _ => 5
-            };
+            var configuredMax = allOptionsForPhase
+                .Where(o => o.MaxSelections > 0)
+                .Select(o => o.MaxSelections)
+                .DefaultIfEmpty(5)
+                .Max();
 
-            if (selectedOptions.Count > max)
-                return (false, $"En la fase {phaseName} solo puedes seleccionar máximo {max} opciones.");
+            if (selectedOptions.Count > configuredMax)
+                return (false, $"En la fase {phaseName} solo puedes seleccionar máximo {configuredMax} opciones.");
 
             return (true, "");
         }
 
-        private string? GetNextPhase(string currentPhase)
+        private string? GetNextPhase(string currentPhase, List<string> phaseOrder)
         {
-            var index = _phaseOrder.IndexOf(currentPhase);
+            var index = phaseOrder.IndexOf(currentPhase);
 
             if (index < 0)
                 return null;
 
-            if (index + 1 >= _phaseOrder.Count)
+            if (index + 1 >= phaseOrder.Count)
                 return null;
 
-            return _phaseOrder[index + 1];
+            return phaseOrder[index + 1];
         }
 
         private decimal CalculateBasicCoherencePenalty(

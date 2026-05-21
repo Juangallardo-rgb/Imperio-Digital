@@ -2,6 +2,7 @@
 using SimuladorApi.Data;
 using SimuladorApi.DTOs.Courses;
 using SimuladorApi.Models;
+using SimuladorApi.DTOs.DesignThinking;
 
 namespace SimuladorApi.Services
 {
@@ -319,6 +320,63 @@ namespace SimuladorApi.Services
                         })
                         .ToList()
                 }).ToList()
+            };
+        }
+
+        public async Task<SimulationResultsDto?> GetAttemptResultsForTeacherAsync(
+    int courseId,
+    int attemptId,
+    int teacherId)
+        {
+            var courseExists = await _context.Courses
+                .AnyAsync(c => c.Id == courseId && c.TeacherId == teacherId);
+
+            if (!courseExists)
+                return null;
+
+            var attempt = await _context.SimulationAttempts
+                .Include(a => a.Scenario)
+                .Include(a => a.PhaseResponses)
+                .Include(a => a.KpiResults)
+                .FirstOrDefaultAsync(a => a.Id == attemptId && a.CourseId == courseId);
+
+            if (attempt == null || attempt.Scenario == null)
+                return null;
+
+            var phaseOrder = new List<string>
+    {
+        "Empatizar",
+        "Definir",
+        "Idear",
+        "Prototipar",
+        "Evaluar"
+    };
+
+            return new SimulationResultsDto
+            {
+                AttemptId = attempt.Id,
+                ScenarioTitle = attempt.Scenario.Title,
+                Status = attempt.Status,
+                FinalScore = attempt.FinalScore,
+                FinalFeedback = attempt.FinalFeedback,
+                PhaseScores = attempt.PhaseResponses
+                    .OrderBy(p => phaseOrder.IndexOf(p.PhaseName))
+                    .Select(p => new PhaseScoreDto
+                    {
+                        PhaseName = p.PhaseName,
+                        Score = p.Score,
+                        Feedback = p.Feedback
+                    })
+                    .ToList(),
+                KpiResults = attempt.KpiResults
+                    .Select(k => new KpiResultDto
+                    {
+                        KpiName = k.KpiName,
+                        InitialValue = k.InitialValue,
+                        FinalValue = k.FinalValue,
+                        Unit = k.Unit
+                    })
+                    .ToList()
             };
         }
 

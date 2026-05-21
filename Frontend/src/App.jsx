@@ -28,6 +28,7 @@ import AvailableCoursesPage from "./pages/courses/AvailableCoursesPage";
 import MyCoursesPage from "./pages/courses/MyCoursesPage";
 import StudentCourseDetailPage from "./pages/courses/StudentCourseDetailPage";
 import CourseResultsPage from "./pages/courses/CourseResultsPage";
+import CourseSimulationResultDetailPage from "./pages/courses/CourseSimulationResultDetailPage";
 
 function App() {
   return (
@@ -54,6 +55,15 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route
+  path="/courses/:courseId/results/:attemptId"
+  element={
+    <ProtectedRoute>
+      <CourseSimulationResultDetailPage />
+    </ProtectedRoute>
+  }
+/>
 
         <Route
           path="/scenarios/create"

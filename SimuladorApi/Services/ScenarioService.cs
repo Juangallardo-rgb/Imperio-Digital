@@ -22,16 +22,19 @@ namespace SimuladorApi.Services
             CreateDesignThinkingScenarioDto request,
             int teacherId)
         {
+            var methodology = await EnsureDesignThinkingMethodologyAsync();
+
             var scenario = new Scenario
             {
                 Title = request.Title,
-                Name = request.Title, // compatibilidad con el flujo anterior
+                Name = request.Title,
                 Description = request.Description,
                 CompanyType = request.CompanyType,
                 Problem = request.Problem,
                 TargetUser = request.TargetUser,
                 Constraints = request.Constraints,
-                Methodology = "DesignThinking",
+                Methodology = methodology.Code,
+                MethodologyId = methodology.Id,
                 Difficulty = request.Difficulty,
                 IsPublished = false,
                 CreatedByUserId = teacherId,
@@ -41,7 +44,7 @@ namespace SimuladorApi.Services
             _context.Scenarios.Add(scenario);
             await _context.SaveChangesAsync();
 
-            AddDefaultPhaseSettings(scenario.Id);
+            await AddDefaultPhaseSettingsFromMethodologyAsync(scenario.Id, methodology.Id);
 
             try
             {
@@ -837,6 +840,141 @@ namespace SimuladorApi.Services
             _context.ScenarioOptions.AddRange(options);
         }
 
+        private async Task<Methodology> EnsureDesignThinkingMethodologyAsync()
+        {
+            var methodology = await _context.Methodologies
+                .Include(m => m.Phases)
+                    .ThenInclude(p => p.Criteria)
+                .FirstOrDefaultAsync(m => m.Code == "DesignThinking");
+
+            if (methodology != null)
+                return methodology;
+
+            methodology = new Methodology
+            {
+                Code = "DesignThinking",
+                Name = "Design Thinking",
+                Description = "Metodología centrada en el usuario para resolver problemas mediante empatía, definición, ideación, prototipado y evaluación.",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                Phases = new List<MethodologyPhase>
+        {
+            new()
+            {
+                Name = "Empatizar",
+                PhaseOrder = 1,
+                Description = "Comprender necesidades, dolores y evidencias del usuario.",
+                DefaultWeight = 25,
+                ActivityType = "SelectionAndText",
+                DefaultMaxSelections = 5,
+                Criteria = new List<MethodologyPhaseCriteria>
+                {
+                    new() { Name = "Selección de evidencias relevantes", DefaultWeight = 40, EvaluationType = "Selection" },
+                    new() { Name = "Identificación de dolores del usuario", DefaultWeight = 30, EvaluationType = "Selection" },
+                    new() { Name = "Justificación escrita", DefaultWeight = 30, EvaluationType = "AIText" }
+                }
+            },
+            new()
+            {
+                Name = "Definir",
+                PhaseOrder = 2,
+                Description = "Formular el problema correcto a partir de la evidencia del usuario.",
+                DefaultWeight = 20,
+                ActivityType = "SelectionAndText",
+                DefaultMaxSelections = 2,
+                Criteria = new List<MethodologyPhaseCriteria>
+                {
+                    new() { Name = "Claridad del problema", DefaultWeight = 40, EvaluationType = "Selection" },
+                    new() { Name = "Enfoque en usuario", DefaultWeight = 30, EvaluationType = "Selection" },
+                    new() { Name = "Relación con evidencia", DefaultWeight = 30, EvaluationType = "AIText" }
+                }
+            },
+            new()
+            {
+                Name = "Idear",
+                PhaseOrder = 3,
+                Description = "Generar y seleccionar soluciones digitales viables.",
+                DefaultWeight = 20,
+                ActivityType = "SelectionAndText",
+                DefaultMaxSelections = 3,
+                Criteria = new List<MethodologyPhaseCriteria>
+                {
+                    new() { Name = "Creatividad", DefaultWeight = 25, EvaluationType = "Selection" },
+                    new() { Name = "Viabilidad", DefaultWeight = 25, EvaluationType = "Selection" },
+                    new() { Name = "Impacto esperado", DefaultWeight = 30, EvaluationType = "Selection" },
+                    new() { Name = "Alineación digital", DefaultWeight = 20, EvaluationType = "AIText" }
+                }
+            },
+            new()
+            {
+                Name = "Prototipar",
+                PhaseOrder = 4,
+                Description = "Construir una propuesta mínima y coherente para validar la solución.",
+                DefaultWeight = 20,
+                ActivityType = "SelectionAndText",
+                DefaultMaxSelections = 4,
+                Criteria = new List<MethodologyPhaseCriteria>
+                {
+                    new() { Name = "Coherencia con solución", DefaultWeight = 35, EvaluationType = "Selection" },
+                    new() { Name = "Funcionalidades mínimas", DefaultWeight = 35, EvaluationType = "Selection" },
+                    new() { Name = "Claridad del flujo", DefaultWeight = 30, EvaluationType = "AIText" }
+                }
+            },
+            new()
+            {
+                Name = "Evaluar",
+                PhaseOrder = 5,
+                Description = "Medir resultados, validar KPIs y proponer mejoras.",
+                DefaultWeight = 15,
+                ActivityType = "SelectionAndText",
+                DefaultMaxSelections = 3,
+                Criteria = new List<MethodologyPhaseCriteria>
+                {
+                    new() { Name = "Selección de KPIs", DefaultWeight = 40, EvaluationType = "Selection" },
+                    new() { Name = "Interpretación de resultados", DefaultWeight = 35, EvaluationType = "AIText" },
+                    new() { Name = "Propuesta de mejora", DefaultWeight = 25, EvaluationType = "AIText" }
+                }
+            }
+        }
+            };
+
+            _context.Methodologies.Add(methodology);
+            await _context.SaveChangesAsync();
+
+            return methodology;
+        }
+
+        private async Task AddDefaultPhaseSettingsFromMethodologyAsync(int scenarioId, int methodologyId)
+        {
+            var phases = await _context.MethodologyPhases
+                .Include(p => p.Criteria)
+                .Where(p => p.MethodologyId == methodologyId && p.IsActive)
+                .OrderBy(p => p.PhaseOrder)
+                .ToListAsync();
+
+            var scenarioPhases = phases.Select(phase => new ScenarioPhaseSetting
+            {
+                ScenarioId = scenarioId,
+                MethodologyPhaseId = phase.Id,
+                PhaseName = phase.Name,
+                CustomName = phase.Name,
+                PhaseOrder = phase.PhaseOrder,
+                PhaseWeight = phase.DefaultWeight,
+                IsEnabled = true,
+                Criteria = phase.Criteria
+                    .Where(c => c.IsActive)
+                    .Select(c => new PhaseCriteriaSetting
+                    {
+                        MethodologyPhaseCriteriaId = c.Id,
+                        CriterionName = c.Name,
+                        CriterionWeight = c.DefaultWeight,
+                        EvaluationType = c.EvaluationType
+                    })
+                    .ToList()
+            }).ToList();
+
+            _context.ScenarioPhaseSettings.AddRange(scenarioPhases);
+        }
         private static ScenarioDetailDto MapToDetailDto(Scenario scenario)
         {
             return new ScenarioDetailDto
