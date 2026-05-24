@@ -28,6 +28,14 @@
 
         public string Difficulty { get; set; } = "Media";
 
+        public DateTime? AvailableFrom { get; set; }
+
+        public DateTime? AvailableUntil { get; set; }
+
+        public int MaxAttemptsPerStudent { get; set; } = 1;
+
+        public bool AllowLateAttempts { get; set; } = false;
+
         public bool IsPublished { get; set; } = false;
 
         public int CreatedByUserId { get; set; }

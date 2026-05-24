@@ -15,5 +15,13 @@
         public string Constraints { get; set; } = string.Empty;
 
         public string Difficulty { get; set; } = "Media";
+
+        public DateTime? AvailableFrom { get; set; }
+
+        public DateTime? AvailableUntil { get; set; }
+
+        public int MaxAttemptsPerStudent { get; set; } = 1;
+
+        public bool AllowLateAttempts { get; set; } = false;
     }
 }

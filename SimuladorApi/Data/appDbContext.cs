@@ -11,6 +11,8 @@ namespace SimuladorApi.Data
 
         public DbSet<User> Users { get; set; }
 
+        public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+
         public DbSet<Scenario> Scenarios { get; set; }
 
         public DbSet<ScenarioVariable> ScenarioVariables { get; set; }
@@ -49,6 +51,19 @@ namespace SimuladorApi.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            // ==========================
+            // RECUPERACIÓN DE CONTRASEÑA
+            // ==========================
+
+            modelBuilder.Entity<PasswordResetToken>()
+                .HasOne(t => t.User)
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PasswordResetToken>()
+                .HasIndex(t => t.Token)
+                .IsUnique();
 
             // ==========================
             // RELACIONES EXISTENTES

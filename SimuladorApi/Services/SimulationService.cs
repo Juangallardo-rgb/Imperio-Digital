@@ -44,6 +44,36 @@ namespace SimuladorApi.Services
             if (scenario == null)
                 return (false, "Escenario publicado no encontrado.", 0);
 
+            var now = DateTime.UtcNow;
+
+            if (!scenario.AllowLateAttempts)
+            {
+                if (scenario.AvailableFrom.HasValue && now < scenario.AvailableFrom.Value)
+                {
+                    return (false, "Este escenario todavía no está disponible.", 0);
+                }
+
+                if (scenario.AvailableUntil.HasValue && now > scenario.AvailableUntil.Value)
+                {
+                    return (false, "Este escenario ya no está disponible.", 0);
+                }
+            }
+
+            var previousAttemptsCount = await _context.SimulationAttempts
+                .CountAsync(a =>
+                    a.ScenarioId == request.ScenarioId &&
+                    a.StudentId == studentId &&
+                    a.CourseId == request.CourseId);
+
+            var maxAttempts = scenario.MaxAttemptsPerStudent <= 0
+                ? 1
+                : scenario.MaxAttemptsPerStudent;
+
+            if (previousAttemptsCount >= maxAttempts)
+            {
+                return (false, $"Ya alcanzaste el máximo de intentos permitidos para este escenario ({maxAttempts}).", 0);
+            }
+
             if (request.CourseId.HasValue)
             {
                 var isEnrolled = await _context.CourseEnrollments

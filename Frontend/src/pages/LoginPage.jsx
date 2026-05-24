@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import { getToken } from "../utils/auth";
 
@@ -68,6 +68,9 @@ function LoginPage() {
           </div>
 
           <button type="submit">Iniciar sesión</button>
+          <Link className="auth-link" to="/forgot-password">
+           ¿Olvidaste tu contraseña?
+          </Link>
         </form>
 
         {message && <div className="message">{message}</div>}

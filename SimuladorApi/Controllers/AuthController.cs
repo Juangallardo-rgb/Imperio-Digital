@@ -12,11 +12,16 @@ namespace SimuladorApi.Controllers
     {
         private readonly AppDbContext _context;
         private readonly TokenService _tokenService;
+        private readonly PasswordResetService _passwordResetService;
 
-        public AuthController(AppDbContext context, TokenService tokenService)
+        public AuthController(
+            AppDbContext context,
+            TokenService tokenService,
+            PasswordResetService passwordResetService)
         {
             _context = context;
             _tokenService = tokenService;
+            _passwordResetService = passwordResetService;
         }
 
         [HttpPost("register")]
@@ -59,6 +64,32 @@ namespace SimuladorApi.Controllers
                 message = "Login exitoso",
                 token = token
             });
+        }
+
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword(ForgotPasswordRequestDto request)
+        {
+            var result = await _passwordResetService.GenerateResetTokenAsync(request.Email);
+
+            return Ok(new
+            {
+                message = result.Message,
+                resetUrl = result.ResetUrl
+            });
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword(ResetPasswordRequestDto request)
+        {
+            var result = await _passwordResetService.ResetPasswordAsync(
+                request.Token,
+                request.NewPassword
+            );
+
+            if (!result.Success)
+                return BadRequest(result.Message);
+
+            return Ok(result.Message);
         }
     }
 }

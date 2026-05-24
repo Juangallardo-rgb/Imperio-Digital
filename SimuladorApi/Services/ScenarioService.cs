@@ -36,9 +36,14 @@ namespace SimuladorApi.Services
                 Methodology = methodology.Code,
                 MethodologyId = methodology.Id,
                 Difficulty = request.Difficulty,
+                AvailableFrom = request.AvailableFrom,
+                AvailableUntil = request.AvailableUntil,
+                MaxAttemptsPerStudent = request.MaxAttemptsPerStudent <= 0 ? 1 : request.MaxAttemptsPerStudent,
+                AllowLateAttempts = request.AllowLateAttempts,
                 IsPublished = false,
                 CreatedByUserId = teacherId,
                 CreatedAt = DateTime.UtcNow
+
             };
 
             _context.Scenarios.Add(scenario);
@@ -78,6 +83,10 @@ namespace SimuladorApi.Services
                     TargetUser = s.TargetUser,
                     Difficulty = s.Difficulty,
                     IsPublished = s.IsPublished,
+                    AvailableFrom = s.AvailableFrom,
+                    AvailableUntil = s.AvailableUntil,
+                    MaxAttemptsPerStudent = s.MaxAttemptsPerStudent,
+                    AllowLateAttempts = s.AllowLateAttempts,
                     CreatedAt = s.CreatedAt
                 })
                 .ToListAsync();
@@ -150,6 +159,10 @@ namespace SimuladorApi.Services
             scenario.TargetUser = request.TargetUser;
             scenario.Constraints = request.Constraints;
             scenario.Difficulty = request.Difficulty;
+            scenario.AvailableFrom = request.AvailableFrom;
+            scenario.AvailableUntil = request.AvailableUntil;
+            scenario.MaxAttemptsPerStudent = request.MaxAttemptsPerStudent <= 0 ? 1 : request.MaxAttemptsPerStudent;
+            scenario.AllowLateAttempts = request.AllowLateAttempts;
             scenario.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
@@ -253,6 +266,17 @@ namespace SimuladorApi.Services
             if (!scenario.Options.Any())
                 return (false, "El escenario debe tener opciones configuradas antes de publicarse.");
 
+            if (scenario.AvailableFrom.HasValue &&
+                scenario.AvailableUntil.HasValue &&
+                scenario.AvailableUntil.Value <= scenario.AvailableFrom.Value)
+            {
+                return (false, "La fecha de cierre debe ser posterior a la fecha de inicio.");
+            }
+
+            if (scenario.MaxAttemptsPerStudent <= 0)
+            {
+                scenario.MaxAttemptsPerStudent = 1;
+            }
             scenario.IsPublished = true;
             scenario.UpdatedAt = DateTime.UtcNow;
 
@@ -990,8 +1014,13 @@ namespace SimuladorApi.Services
                 Methodology = scenario.Methodology,
                 Difficulty = scenario.Difficulty,
                 IsPublished = scenario.IsPublished,
+                AvailableFrom = scenario.AvailableFrom,
+                AvailableUntil = scenario.AvailableUntil,
+                MaxAttemptsPerStudent = scenario.MaxAttemptsPerStudent,
+                AllowLateAttempts = scenario.AllowLateAttempts,
                 CreatedAt = scenario.CreatedAt,
                 UpdatedAt = scenario.UpdatedAt,
+
                 PhaseSettings = scenario.PhaseSettings
                     .OrderBy(p => p.PhaseOrder)
                     .Select(p => new PhaseSettingDetailDto

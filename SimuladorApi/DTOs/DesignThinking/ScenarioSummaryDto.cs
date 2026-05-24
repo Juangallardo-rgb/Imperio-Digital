@@ -18,6 +18,14 @@
 
         public bool IsPublished { get; set; }
 
+        public DateTime? AvailableFrom { get; set; }
+
+        public DateTime? AvailableUntil { get; set; }
+
+        public int MaxAttemptsPerStudent { get; set; }
+
+        public bool AllowLateAttempts { get; set; }
+
         public DateTime CreatedAt { get; set; }
     }
 }

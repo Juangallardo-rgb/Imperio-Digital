@@ -57,6 +57,7 @@ builder.Services.AddScoped<AiFeedbackService>();
 builder.Services.AddScoped<AiScenarioContentService>();
 builder.Services.AddScoped<SimulationService>();
 builder.Services.AddScoped<CourseService>();
+builder.Services.AddScoped<PasswordResetService>();
 
 builder.Services.AddHttpClient<OpenRouterService>();
 builder.Services.AddHttpClient<AiScenarioContentService>();
