@@ -13,15 +13,6 @@ namespace SimuladorApi.Services
         private readonly AiFeedbackService _aiFeedbackService;
         private readonly KpiSimulationService _kpiSimulationService;
 
-        private readonly List<string> _phaseOrder = new()
-        {
-            "Empatizar",
-            "Definir",
-            "Idear",
-            "Prototipar",
-            "Evaluar"
-        };
-
         public SimulationService(
             AppDbContext context,
             ScoringService scoringService,
@@ -39,6 +30,7 @@ namespace SimuladorApi.Services
             StartSimulationDto request)
         {
             var scenario = await _context.Scenarios
+                .Include(s => s.PhaseSettings)
                 .FirstOrDefaultAsync(s => s.Id == request.ScenarioId && s.IsPublished);
 
             if (scenario == null)
@@ -89,8 +81,16 @@ namespace SimuladorApi.Services
                     return (false, "Este escenario no está asignado al curso.", 0);
             }
 
-            var initialKpis = _kpiSimulationService.GetDefaultInitialKpis();
+            var initialKpis = _kpiSimulationService.GetDefaultInitialKpis(scenario.Methodology);
             var initialKpisJson = _kpiSimulationService.SerializeKpis(initialKpis);
+            var firstPhase = scenario.PhaseSettings
+            .Where(p => p.IsEnabled)
+            .OrderBy(p => p.PhaseOrder)
+            .Select(p => p.PhaseName)
+            .FirstOrDefault();
+
+            if (string.IsNullOrWhiteSpace(firstPhase))
+                return (false, "El escenario no tiene fases configuradas.", 0);
 
             var attempt = new SimulationAttempt
             {
@@ -99,7 +99,7 @@ namespace SimuladorApi.Services
                 CourseId = request.CourseId,
                 StartedAt = DateTime.UtcNow,
                 Status = "InProgress",
-                CurrentPhase = "Empatizar",
+                CurrentPhase = firstPhase,
                 InitialBudget = 100,
                 RemainingBudget = 100,
                 InitialTimeWeeks = 8,
@@ -175,6 +175,18 @@ namespace SimuladorApi.Services
                 AttemptId = attempt.Id,
                 ScenarioId = attempt.ScenarioId,
                 ScenarioTitle = attempt.Scenario.Title,
+                MethodologyCode = attempt.Scenario.Methodology,
+                MethodologyName = GetMethodologyName(attempt.Scenario.Methodology),
+                PhaseOrder = attempt.Scenario.PhaseSettings
+                .Where(p => p.IsEnabled)
+                .OrderBy(p => p.PhaseOrder)
+                .Select(p => new SimulationPhaseNavigationDto
+                {
+                    PhaseName = p.PhaseName,
+                    PhaseOrder = p.PhaseOrder,
+                    PhaseWeight = p.PhaseWeight
+                })
+                .ToList(),
                 Status = attempt.Status,
                 CurrentPhaseName = currentPhase,
                 CurrentPhaseOrder = currentPhaseOrder,
@@ -261,7 +273,8 @@ namespace SimuladorApi.Services
 
             var textEvaluation = await _aiFeedbackService.EvaluateTextAnswerAsync(
                 phaseName,
-                request.TextAnswer
+                request.TextAnswer,
+                attempt.Scenario.Methodology
             );
 
             var phaseScore = _scoringService.CombinePhaseScore(
@@ -279,7 +292,8 @@ namespace SimuladorApi.Services
 
             var feedback = await _aiFeedbackService.GeneratePhaseFeedbackAsync(
                 phaseName,
-                phaseScore
+                phaseScore,
+                attempt.Scenario.Methodology
             );
 
             attempt.RemainingBudget -= totalCost;
@@ -287,8 +301,16 @@ namespace SimuladorApi.Services
             attempt.RiskLevel += selectedOptions.Sum(o => o.RiskImpact);
             attempt.RiskLevel = Math.Clamp(attempt.RiskLevel, 0, 100);
 
-            var currentKpis = _kpiSimulationService.DeserializeKpis(attempt.CurrentKpisJson);
-            var updatedKpis = _kpiSimulationService.ApplyOptionImpacts(currentKpis, selectedOptions);
+            var currentKpis = _kpiSimulationService.DeserializeKpis(
+                attempt.CurrentKpisJson,
+                attempt.Scenario.Methodology
+            );
+
+            var updatedKpis = _kpiSimulationService.ApplyOptionImpacts(
+                currentKpis,
+                selectedOptions,
+                attempt.Scenario.Methodology
+            );
             attempt.CurrentKpisJson = _kpiSimulationService.SerializeKpis(updatedKpis);
 
             var triggeredEventJson = ApplySimpleEventIfNeeded(attempt, phaseName, selectedOptions);
@@ -390,13 +412,15 @@ namespace SimuladorApi.Services
 
             var finalFeedback = await _aiFeedbackService.GenerateFinalFeedbackAsync(
                 finalScore,
-                phaseScores
+                phaseScores,
+                attempt.Scenario.Methodology
             );
 
             var kpiResults = _kpiSimulationService.BuildKpiResults(
                 attempt.Id,
                 attempt.InitialKpisJson,
-                attempt.CurrentKpisJson
+                attempt.CurrentKpisJson,
+                attempt.Scenario.Methodology
             );
 
             if (attempt.KpiResults.Any())
@@ -434,6 +458,8 @@ namespace SimuladorApi.Services
             {
                 AttemptId = attempt.Id,
                 ScenarioTitle = attempt.Scenario.Title,
+                MethodologyCode = attempt.Scenario.Methodology,
+                MethodologyName = GetMethodologyName(attempt.Scenario.Methodology),
                 Status = attempt.Status,
                 FinalScore = attempt.FinalScore,
                 FinalFeedback = attempt.FinalFeedback,
@@ -477,7 +503,16 @@ namespace SimuladorApi.Services
                 .ToListAsync();
         }
 
-
+        private static string GetMethodologyName(string methodologyCode)
+        {
+            return methodologyCode switch
+            {
+                "BPM" => "Business Process Management",
+                "DigitalMaturity" => "Madurez Digital",
+                "LeanStartup" => "Lean Startup",
+                _ => "Design Thinking"
+            };
+        }
         private List<string> GetScenarioPhaseOrder(Scenario scenario)
         {
             return scenario.PhaseSettings

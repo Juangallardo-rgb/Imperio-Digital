@@ -3,8 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
 
-const phases = ["Empatizar", "Definir", "Idear", "Prototipar", "Evaluar", "Resultado"];
-
 function DesignThinkingSimulationPage() {
   const { attemptId } = useParams();
   const navigate = useNavigate();
@@ -25,9 +23,7 @@ function DesignThinkingSimulationPage() {
       const token = getToken();
 
       const response = await api.get(`/design-thinking/simulations/${attemptId}/current`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (response.data.currentPhaseName === "Resultado") {
@@ -58,7 +54,6 @@ function DesignThinkingSimulationPage() {
 
   const activeKpis = useMemo(() => {
     const raw = phaseFeedback?.currentKpisJson || current?.currentKpisJson;
-
     if (!raw) return {};
 
     try {
@@ -67,6 +62,11 @@ function DesignThinkingSimulationPage() {
       return {};
     }
   }, [current, phaseFeedback]);
+
+  const kpiItems = useMemo(() => {
+    if (!current) return [];
+    return getKpiDisplayItems(current.methodologyCode, activeKpis);
+  }, [current, activeKpis]);
 
   const triggeredEvent = useMemo(() => {
     if (!phaseFeedback?.triggeredEventJson) return null;
@@ -108,7 +108,15 @@ function DesignThinkingSimulationPage() {
     );
   }, [selectedOptions]);
 
-  const maxSelections = current ? getPhaseLimit(current.currentPhaseName) : 0;
+  const maxSelections = useMemo(() => {
+    if (!current || current.currentPhaseOptions.length === 0) return 3;
+
+    const configured = current.currentPhaseOptions
+      .map((option) => Number(option.maxSelections || 0))
+      .filter((value) => value > 0);
+
+    return configured.length > 0 ? Math.max(...configured) : 3;
+  }, [current]);
 
   const toggleOption = (optionId) => {
     setMessage("");
@@ -148,15 +156,8 @@ function DesignThinkingSimulationPage() {
 
       const response = await api.post(
         `/design-thinking/simulations/${attemptId}/phase/${current.currentPhaseName}/submit`,
-        {
-          selectedOptionIds,
-          textAnswer,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { selectedOptionIds, textAnswer },
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       setPhaseFeedback(response.data);
@@ -191,11 +192,7 @@ function DesignThinkingSimulationPage() {
       await api.post(
         `/design-thinking/simulations/${attemptId}/finish`,
         {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       navigate(`/design-thinking/results/${attemptId}`);
@@ -235,20 +232,26 @@ function DesignThinkingSimulationPage() {
     );
   }
 
+  const phases = [...current.phaseOrder.map((phase) => phase.phaseName), "Resultado"];
   const currentPhaseIndex = phases.indexOf(current.currentPhaseName);
   const budgetPercent = getPercent(current.remainingBudget, current.initialBudget);
   const timePercent = getPercent(current.remainingTimeWeeks, current.initialTimeWeeks);
-  const riskPercent = Math.min(100, Math.max(0, Number(phaseFeedback?.riskLevel ?? current.riskLevel ?? 0)));
+  const riskPercent = Math.min(
+    100,
+    Math.max(0, Number(phaseFeedback?.riskLevel ?? current.riskLevel ?? 0))
+  );
 
   return (
     <div className="simulation-page">
       <div className="simulation-hero">
         <div>
-          <span className="eyebrow">Imperio Digital · Simulación Design Thinking</span>
+          <span className="eyebrow">
+            Imperio Digital · Simulación {current.methodologyName}
+          </span>
           <h1>{current.scenarioTitle}</h1>
           <p>
-            Toma decisiones bajo restricciones reales. Cada elección puede afectar tu
-            presupuesto, tiempo, riesgo y KPIs de negocio.
+            Toma decisiones bajo restricciones reales. Cada elección puede afectar
+            presupuesto, tiempo, riesgo y KPIs según la metodología seleccionada.
           </p>
         </div>
 
@@ -261,7 +264,6 @@ function DesignThinkingSimulationPage() {
       <div className="phase-stepper professional-stepper">
         {phases.map((phase, index) => {
           let className = "phase-step";
-
           if (index < currentPhaseIndex) className += " done";
           if (index === currentPhaseIndex) className += " active";
 
@@ -300,7 +302,9 @@ function DesignThinkingSimulationPage() {
             </div>
             <div className="meter">
               <div
-                className={`meter-fill ${riskPercent >= 70 ? "danger" : riskPercent >= 40 ? "warning" : "success"}`}
+                className={`meter-fill ${
+                  riskPercent >= 70 ? "danger" : riskPercent >= 40 ? "warning" : "success"
+                }`}
                 style={{ width: `${riskPercent}%` }}
               ></div>
             </div>
@@ -315,11 +319,16 @@ function DesignThinkingSimulationPage() {
 
           <div className="kpi-panel">
             <h3>KPIs actuales</h3>
-            <KpiItem label="Abandono" value={activeKpis.cartAbandonment} suffix="%" inverted />
-            <KpiItem label="Conversión" value={activeKpis.conversionRate} suffix="%" />
-            <KpiItem label="Satisfacción" value={activeKpis.satisfaction} suffix="/100" />
-            <KpiItem label="Tiempo compra" value={activeKpis.purchaseTime} suffix="min" inverted />
-            <KpiItem label="Adopción digital" value={activeKpis.digitalAdoption} suffix="/100" />
+
+            {kpiItems.map((kpi) => (
+              <KpiItem
+                key={kpi.key}
+                label={kpi.label}
+                value={kpi.value}
+                suffix={kpi.suffix}
+                inverted={kpi.inverted}
+              />
+            ))}
           </div>
 
           {!phaseFeedback && (
@@ -339,15 +348,13 @@ function DesignThinkingSimulationPage() {
               <div className="section-header">
                 <div>
                   <span className="eyebrow">Actividad guiada</span>
-                  <h2>{getPhaseTitle(current.currentPhaseName)}</h2>
+                  <h2>{getPhaseTitle(current.methodologyCode, current.currentPhaseName)}</h2>
                 </div>
-                <span className="selection-limit">
-                  Máximo {maxSelections} selecciones
-                </span>
+                <span className="selection-limit">Máximo {maxSelections} selecciones</span>
               </div>
 
               <p className="phase-instruction">
-                {getPhaseInstruction(current.currentPhaseName)}
+                {getPhaseInstruction(current.methodologyCode, current.currentPhaseName)}
               </p>
 
               {Object.keys(groupedOptions).map((type) => (
@@ -366,21 +373,24 @@ function DesignThinkingSimulationPage() {
                           onClick={() => toggleOption(option.id)}
                         >
                           <div className="decision-card-top">
-                            <span className="option-type-badge">{getOptionTypeLabel(option.optionType)}</span>
+                            <span className="option-type-badge">
+                              {getOptionTypeLabel(option.optionType)}
+                            </span>
                             {isSelected && <span className="selected-badge">Seleccionada</span>}
                           </div>
 
                           <p>{option.text}</p>
 
                           <div className="decision-meta">
-                            {Number(option.cost || 0) > 0 && (
-                              <span>Costo: {option.cost}</span>
-                            )}
+                            {Number(option.cost || 0) > 0 && <span>Costo: {option.cost}</span>}
                             {Number(option.timeCost || 0) > 0 && (
                               <span>Tiempo: {option.timeCost} sem</span>
                             )}
                             {Number(option.riskImpact || 0) !== 0 && (
-                              <span>Riesgo: {option.riskImpact > 0 ? "+" : ""}{option.riskImpact}</span>
+                              <span>
+                                Riesgo: {option.riskImpact > 0 ? "+" : ""}
+                                {option.riskImpact}
+                              </span>
                             )}
                           </div>
 
@@ -388,9 +398,15 @@ function DesignThinkingSimulationPage() {
                             option.expectedEffortLevel ||
                             option.expectedViabilityLevel) && (
                             <div className="decision-extra">
-                              {option.expectedImpactLevel && <small>Impacto: {option.expectedImpactLevel}</small>}
-                              {option.expectedEffortLevel && <small>Esfuerzo: {option.expectedEffortLevel}</small>}
-                              {option.expectedViabilityLevel && <small>Viabilidad: {option.expectedViabilityLevel}</small>}
+                              {option.expectedImpactLevel && (
+                                <small>Impacto: {option.expectedImpactLevel}</small>
+                              )}
+                              {option.expectedEffortLevel && (
+                                <small>Esfuerzo: {option.expectedEffortLevel}</small>
+                              )}
+                              {option.expectedViabilityLevel && (
+                                <small>Viabilidad: {option.expectedViabilityLevel}</small>
+                              )}
                             </div>
                           )}
                         </button>
@@ -405,7 +421,7 @@ function DesignThinkingSimulationPage() {
                 <textarea
                   value={textAnswer}
                   onChange={(e) => setTextAnswer(e.target.value)}
-                  placeholder={getTextareaPlaceholder(current.currentPhaseName)}
+                  placeholder={getTextareaPlaceholder(current.methodologyCode, current.currentPhaseName)}
                 />
                 <small>{textAnswer.length} caracteres · mínimo recomendado: 80</small>
               </div>
@@ -483,10 +499,52 @@ function KpiItem({ label, value, suffix, inverted }) {
     <div className="kpi-item">
       <span>{label}</span>
       <strong className={inverted ? "kpi-inverted" : ""}>
-        {Number.isFinite(numericValue) ? Math.round(numericValue * 100) / 100 : 0}{suffix}
+        {Number.isFinite(numericValue) ? Math.round(numericValue * 100) / 100 : 0}
+        {suffix}
       </strong>
     </div>
   );
+}
+
+function getKpiDisplayItems(methodologyCode, kpis) {
+  const catalog = {
+    BPM: [
+      ["processEfficiency", "Eficiencia", "/100"],
+      ["cycleTime", "Tiempo ciclo", " días", true],
+      ["errorRate", "Errores", "%", true],
+      ["satisfaction", "Satisfacción", "/100"],
+      ["digitalAdoption", "Adopción digital", "/100"],
+    ],
+    DigitalMaturity: [
+      ["digitalMaturity", "Madurez digital", "/100"],
+      ["processEfficiency", "Eficiencia", "/100"],
+      ["dataUsage", "Uso de datos", "/100"],
+      ["satisfaction", "Satisfacción", "/100"],
+      ["digitalAdoption", "Adopción digital", "/100"],
+    ],
+    LeanStartup: [
+      ["validatedLearning", "Aprendizaje", "/100"],
+      ["conversionRate", "Conversión", "%"],
+      ["satisfaction", "Satisfacción", "/100"],
+      ["experimentVelocity", "Velocidad exp.", "/100"],
+      ["digitalAdoption", "Adopción digital", "/100"],
+    ],
+    DesignThinking: [
+      ["cartAbandonment", "Abandono", "%", true],
+      ["conversionRate", "Conversión", "%"],
+      ["satisfaction", "Satisfacción", "/100"],
+      ["purchaseTime", "Tiempo compra", " min", true],
+      ["digitalAdoption", "Adopción digital", "/100"],
+    ],
+  };
+
+  return (catalog[methodologyCode] || catalog.DesignThinking).map((item) => ({
+    key: item[0],
+    label: item[1],
+    suffix: item[2],
+    inverted: Boolean(item[3]),
+    value: kpis[item[0]],
+  }));
 }
 
 function getPercent(value, total) {
@@ -494,62 +552,42 @@ function getPercent(value, total) {
   return Math.min(100, Math.max(0, (Number(value) / Number(total)) * 100));
 }
 
-function getPhaseLimit(phaseName) {
-  const limits = {
-    Empatizar: 5,
-    Definir: 2,
-    Idear: 3,
-    Prototipar: 4,
-    Evaluar: 3,
-  };
-
-  return limits[phaseName] || 3;
-}
-
-function getPhaseTitle(phaseName) {
+function getPhaseTitle(methodologyCode, phaseName) {
   const titles = {
     Empatizar: "Comprende al usuario antes de decidir",
     Definir: "Formula el problema correcto",
     Idear: "Elige soluciones viables y de impacto",
-    Prototipar: "Construye un MVP coherente",
+    Prototipar: "Construye un prototipo coherente",
     Evaluar: "Mide resultados y aprende",
+
+    "Identificar proceso": "Identifica el proceso crítico",
+    "Modelar proceso actual": "Representa el flujo actual",
+    "Analizar cuellos de botella": "Detecta fricciones del proceso",
+    "Rediseñar proceso": "Propón mejoras viables",
+    "Monitorear indicadores": "Define control y seguimiento",
+
+    "Diagnóstico inicial": "Evalúa el estado digital actual",
+    "Evaluar capacidades": "Analiza capacidades digitales",
+    "Priorizar brechas": "Prioriza brechas críticas",
+    "Plan de transformación": "Diseña iniciativas digitales",
+    "Seguimiento de madurez": "Mide avance de madurez",
+
+    Hipótesis: "Formula hipótesis críticas",
+    MVP: "Diseña el producto mínimo viable",
+    Medición: "Define métricas accionables",
+    Aprendizaje: "Interpreta aprendizaje validado",
+    "Pivote o perseverancia": "Decide con evidencia",
   };
 
-  return titles[phaseName] || "Actividad";
+  return titles[phaseName] || `Resolver fase: ${phaseName}`;
 }
 
-function getPhaseInstruction(phaseName) {
-  const instructions = {
-    Empatizar:
-      "Selecciona únicamente la evidencia y dolores más relevantes. No todo lo que parece útil realmente aporta al problema.",
-    Definir:
-      "Elige el problema que mejor conecta con la evidencia detectada. Una mala definición afecta todas las fases siguientes.",
-    Idear:
-      "Selecciona soluciones considerando impacto, costo, tiempo y riesgo. No puedes hacerlo todo: prioriza estratégicamente.",
-    Prototipar:
-      "Selecciona funcionalidades mínimas y flujo de usuario coherente con la solución que elegiste.",
-    Evaluar:
-      "Escoge KPIs que realmente permitan medir si la solución funcionó y justifica tu interpretación.",
-  };
-
-  return instructions[phaseName] || "";
+function getPhaseInstruction(methodologyCode, phaseName) {
+  return `Selecciona las opciones más relevantes para la fase "${phaseName}" y justifica tu decisión con base en el caso, las restricciones y la metodología aplicada.`;
 }
 
-function getTextareaPlaceholder(phaseName) {
-  const placeholders = {
-    Empatizar:
-      "Explica qué revelan las evidencias y dolores seleccionados sobre las necesidades reales del usuario...",
-    Definir:
-      "Explica por qué ese problema es prioritario y cómo se conecta con la evidencia previa...",
-    Idear:
-      "Justifica por qué tus soluciones son viables y responden al problema definido...",
-    Prototipar:
-      "Describe cómo funcionaría el prototipo y por qué sus funcionalidades son suficientes para validar la solución...",
-    Evaluar:
-      "Interpreta los KPIs obtenidos y propone una mejora para la siguiente iteración...",
-  };
-
-  return placeholders[phaseName] || "Escribe tu justificación...";
+function getTextareaPlaceholder(methodologyCode, phaseName) {
+  return `Explica por qué tus decisiones en la fase "${phaseName}" son coherentes con el problema, la metodología y los resultados esperados...`;
 }
 
 function getOptionTypeLabel(type) {
@@ -561,6 +599,22 @@ function getOptionTypeLabel(type) {
     PrototypeFeature: "Funcionalidades del prototipo",
     UserFlowStep: "Flujo de usuario",
     KPI: "KPIs",
+
+    ProcessEvidence: "Evidencias del proceso",
+    CurrentProcessStep: "Proceso actual",
+    Bottleneck: "Cuellos de botella",
+    ProcessImprovement: "Mejoras del proceso",
+
+    CurrentState: "Estado actual",
+    Capability: "Capacidades",
+    Gap: "Brechas",
+    TransformationInitiative: "Iniciativas",
+
+    Hypothesis: "Hipótesis",
+    MvpFeature: "MVP",
+    Metric: "Métricas",
+    Learning: "Aprendizajes",
+    Decision: "Decisiones",
   };
 
   return labels[type] || type;

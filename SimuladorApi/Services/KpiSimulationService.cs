@@ -5,15 +5,45 @@ namespace SimuladorApi.Services
 {
     public class KpiSimulationService
     {
-        public Dictionary<string, decimal> GetDefaultInitialKpis()
+        public Dictionary<string, decimal> GetDefaultInitialKpis(string methodologyCode = "DesignThinking")
         {
-            return new Dictionary<string, decimal>
+            return methodologyCode switch
             {
-                { "cartAbandonment", 35 },
-                { "conversionRate", 3 },
-                { "satisfaction", 60 },
-                { "purchaseTime", 6 },
-                { "digitalAdoption", 45 }
+                "BPM" => new Dictionary<string, decimal>
+                {
+                    { "processEfficiency", 55 },
+                    { "cycleTime", 8 },
+                    { "errorRate", 18 },
+                    { "satisfaction", 60 },
+                    { "digitalAdoption", 45 }
+                },
+
+                "DigitalMaturity" => new Dictionary<string, decimal>
+                {
+                    { "digitalMaturity", 35 },
+                    { "processEfficiency", 50 },
+                    { "dataUsage", 30 },
+                    { "satisfaction", 60 },
+                    { "digitalAdoption", 40 }
+                },
+
+                "LeanStartup" => new Dictionary<string, decimal>
+                {
+                    { "validatedLearning", 20 },
+                    { "conversionRate", 3 },
+                    { "satisfaction", 60 },
+                    { "experimentVelocity", 40 },
+                    { "digitalAdoption", 45 }
+                },
+
+                _ => new Dictionary<string, decimal>
+                {
+                    { "cartAbandonment", 35 },
+                    { "conversionRate", 3 },
+                    { "satisfaction", 60 },
+                    { "purchaseTime", 6 },
+                    { "digitalAdoption", 45 }
+                }
             };
         }
 
@@ -22,25 +52,26 @@ namespace SimuladorApi.Services
             return JsonSerializer.Serialize(kpis);
         }
 
-        public Dictionary<string, decimal> DeserializeKpis(string json)
+        public Dictionary<string, decimal> DeserializeKpis(string json, string methodologyCode = "DesignThinking")
         {
             if (string.IsNullOrWhiteSpace(json))
-                return GetDefaultInitialKpis();
+                return GetDefaultInitialKpis(methodologyCode);
 
             try
             {
                 return JsonSerializer.Deserialize<Dictionary<string, decimal>>(json)
-                       ?? GetDefaultInitialKpis();
+                       ?? GetDefaultInitialKpis(methodologyCode);
             }
             catch
             {
-                return GetDefaultInitialKpis();
+                return GetDefaultInitialKpis(methodologyCode);
             }
         }
 
         public Dictionary<string, decimal> ApplyOptionImpacts(
             Dictionary<string, decimal> currentKpis,
-            List<ScenarioOption> selectedOptions)
+            List<ScenarioOption> selectedOptions,
+            string methodologyCode = "DesignThinking")
         {
             var updated = new Dictionary<string, decimal>(currentKpis);
 
@@ -73,35 +104,29 @@ namespace SimuladorApi.Services
                 }
             }
 
-            return ClampKpis(updated);
+            return ClampKpis(updated, methodologyCode);
         }
 
-        public Dictionary<string, decimal> ClampKpis(Dictionary<string, decimal> kpis)
+        public Dictionary<string, decimal> ClampKpis(
+            Dictionary<string, decimal> kpis,
+            string methodologyCode = "DesignThinking")
         {
-            if (kpis.ContainsKey("satisfaction"))
-            {
-                kpis["satisfaction"] = Math.Clamp(kpis["satisfaction"], 0, 100);
-            }
+            ClampIfExists(kpis, "satisfaction", 0, 100);
+            ClampIfExists(kpis, "digitalAdoption", 0, 100);
 
-            if (kpis.ContainsKey("digitalAdoption"))
-            {
-                kpis["digitalAdoption"] = Math.Clamp(kpis["digitalAdoption"], 0, 100);
-            }
+            ClampIfExists(kpis, "cartAbandonment", 0, 100);
+            ClampIfExists(kpis, "conversionRate", 0, 100);
+            ClampIfExists(kpis, "purchaseTime", 1, 999);
 
-            if (kpis.ContainsKey("cartAbandonment"))
-            {
-                kpis["cartAbandonment"] = Math.Clamp(kpis["cartAbandonment"], 0, 100);
-            }
+            ClampIfExists(kpis, "processEfficiency", 0, 100);
+            ClampIfExists(kpis, "cycleTime", 1, 999);
+            ClampIfExists(kpis, "errorRate", 0, 100);
 
-            if (kpis.ContainsKey("conversionRate") && kpis["conversionRate"] < 0)
-            {
-                kpis["conversionRate"] = 0;
-            }
+            ClampIfExists(kpis, "digitalMaturity", 0, 100);
+            ClampIfExists(kpis, "dataUsage", 0, 100);
 
-            if (kpis.ContainsKey("purchaseTime"))
-            {
-                kpis["purchaseTime"] = Math.Max(1, kpis["purchaseTime"]);
-            }
+            ClampIfExists(kpis, "validatedLearning", 0, 100);
+            ClampIfExists(kpis, "experimentVelocity", 0, 100);
 
             return kpis;
         }
@@ -109,59 +134,85 @@ namespace SimuladorApi.Services
         public List<SimulationKpiResult> BuildKpiResults(
             int attemptId,
             string initialKpisJson,
-            string currentKpisJson)
+            string currentKpisJson,
+            string methodologyCode = "DesignThinking")
         {
-            var initial = DeserializeKpis(initialKpisJson);
-            var current = DeserializeKpis(currentKpisJson);
+            var initial = DeserializeKpis(initialKpisJson, methodologyCode);
+            var current = DeserializeKpis(currentKpisJson, methodologyCode);
 
-            return new List<SimulationKpiResult>
+            return methodologyCode switch
             {
-                new()
+                "BPM" => new List<SimulationKpiResult>
                 {
-                    SimulationAttemptId = attemptId,
-                    KpiName = "Abandono de carrito",
-                    InitialValue = GetValue(initial, "cartAbandonment"),
-                    FinalValue = GetValue(current, "cartAbandonment"),
-                    Unit = "%"
+                    CreateResult(attemptId, "Eficiencia del proceso", initial, current, "processEfficiency", "/100"),
+                    CreateResult(attemptId, "Tiempo de ciclo", initial, current, "cycleTime", "días"),
+                    CreateResult(attemptId, "Tasa de errores", initial, current, "errorRate", "%"),
+                    CreateResult(attemptId, "Satisfacción", initial, current, "satisfaction", "/100"),
+                    CreateResult(attemptId, "Adopción digital", initial, current, "digitalAdoption", "/100")
                 },
-                new()
+
+                "DigitalMaturity" => new List<SimulationKpiResult>
                 {
-                    SimulationAttemptId = attemptId,
-                    KpiName = "Conversión",
-                    InitialValue = GetValue(initial, "conversionRate"),
-                    FinalValue = GetValue(current, "conversionRate"),
-                    Unit = "%"
+                    CreateResult(attemptId, "Madurez digital", initial, current, "digitalMaturity", "/100"),
+                    CreateResult(attemptId, "Eficiencia operativa", initial, current, "processEfficiency", "/100"),
+                    CreateResult(attemptId, "Uso de datos", initial, current, "dataUsage", "/100"),
+                    CreateResult(attemptId, "Satisfacción", initial, current, "satisfaction", "/100"),
+                    CreateResult(attemptId, "Adopción digital", initial, current, "digitalAdoption", "/100")
                 },
-                new()
+
+                "LeanStartup" => new List<SimulationKpiResult>
                 {
-                    SimulationAttemptId = attemptId,
-                    KpiName = "Satisfacción del usuario",
-                    InitialValue = GetValue(initial, "satisfaction"),
-                    FinalValue = GetValue(current, "satisfaction"),
-                    Unit = "/100"
+                    CreateResult(attemptId, "Aprendizaje validado", initial, current, "validatedLearning", "/100"),
+                    CreateResult(attemptId, "Conversión", initial, current, "conversionRate", "%"),
+                    CreateResult(attemptId, "Satisfacción", initial, current, "satisfaction", "/100"),
+                    CreateResult(attemptId, "Velocidad experimental", initial, current, "experimentVelocity", "/100"),
+                    CreateResult(attemptId, "Adopción digital", initial, current, "digitalAdoption", "/100")
                 },
-                new()
+
+                _ => new List<SimulationKpiResult>
                 {
-                    SimulationAttemptId = attemptId,
-                    KpiName = "Tiempo promedio de compra",
-                    InitialValue = GetValue(initial, "purchaseTime"),
-                    FinalValue = GetValue(current, "purchaseTime"),
-                    Unit = "min"
-                },
-                new()
-                {
-                    SimulationAttemptId = attemptId,
-                    KpiName = "Adopción digital",
-                    InitialValue = GetValue(initial, "digitalAdoption"),
-                    FinalValue = GetValue(current, "digitalAdoption"),
-                    Unit = "/100"
+                    CreateResult(attemptId, "Abandono de carrito", initial, current, "cartAbandonment", "%"),
+                    CreateResult(attemptId, "Conversión", initial, current, "conversionRate", "%"),
+                    CreateResult(attemptId, "Satisfacción del usuario", initial, current, "satisfaction", "/100"),
+                    CreateResult(attemptId, "Tiempo promedio de compra", initial, current, "purchaseTime", "min"),
+                    CreateResult(attemptId, "Adopción digital", initial, current, "digitalAdoption", "/100")
                 }
+            };
+        }
+
+        private static SimulationKpiResult CreateResult(
+            int attemptId,
+            string label,
+            Dictionary<string, decimal> initial,
+            Dictionary<string, decimal> current,
+            string key,
+            string unit)
+        {
+            return new SimulationKpiResult
+            {
+                SimulationAttemptId = attemptId,
+                KpiName = label,
+                InitialValue = GetValue(initial, key),
+                FinalValue = GetValue(current, key),
+                Unit = unit
             };
         }
 
         private static decimal GetValue(Dictionary<string, decimal> kpis, string key)
         {
             return kpis.ContainsKey(key) ? Math.Round(kpis[key], 2) : 0;
+        }
+
+        private static void ClampIfExists(
+            Dictionary<string, decimal> kpis,
+            string key,
+            decimal min,
+            decimal max)
+        {
+            if (kpis.ContainsKey(key))
+            {
+                kpis[key] = Math.Clamp(kpis[key], min, max);
+            }
         }
     }
 }

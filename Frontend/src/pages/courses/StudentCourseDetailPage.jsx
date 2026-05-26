@@ -128,9 +128,10 @@ function StudentCourseDetailPage() {
 
                 <h2>{scenario.title}</h2>
                 <p>
-                  Resuelve este caso aplicando Design Thinking bajo restricciones de
-                  presupuesto, tiempo y riesgo.
-                </p>
+  Resuelve este caso aplicando{" "}
+  <strong>{scenario.methodologyName || scenario.methodology || "una metodología"}</strong>{" "}
+  bajo restricciones de presupuesto, tiempo y riesgo.
+</p>
 
                 <button
                   className="primary-action"

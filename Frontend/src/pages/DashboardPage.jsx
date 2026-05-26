@@ -22,7 +22,7 @@ function DashboardPage() {
           <h1>Bienvenido, {user.name}</h1>
           <p>
             Plataforma educativa para simular procesos de transformación digital
-            mediante Design Thinking, decisiones estratégicas, KPIs y retroalimentación.
+            mediante metodologías de transformación digital, decisiones estratégicas, KPIs y retroalimentación.
           </p>
         </div>
 
@@ -65,7 +65,7 @@ function DashboardPage() {
             <Link className="action-card-pro" to="/design-thinking/scenarios/create">
               <span>03</span>
               <h2>Crear escenario</h2>
-              <p>Diseña casos de estudio basados en Design Thinking.</p>
+              <p>Diseña casos de estudio basados en metodologías de transformación digital.</p>
             </Link>
 
             <Link className="action-card-pro" to="/design-thinking/scenarios">

@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getToken, getUserFromToken, logout } from "../utils/auth";
+import logo from "../assets/imperio-logo.png";
 
 function Navbar() {
   const navigate = useNavigate();
@@ -8,7 +9,9 @@ function Navbar() {
   const token = getToken();
   const user = getUserFromToken();
 
-  if (!token || location.pathname === "/") return null;
+  if (!token || location.pathname === "/" || location.pathname === "/forgot-password" || location.pathname === "/reset-password") {
+    return null;
+  }
 
   const handleLogout = () => {
     logout();
@@ -16,42 +19,52 @@ function Navbar() {
   };
 
   return (
-    <div className="navbar">
-      <div className="navbar-content">
-        <div>
-          <strong>Imperio Digital</strong>
+    <header className="app-navbar">
+      <div className="app-navbar-inner">
+        <Link to="/dashboard" className="brand-area">
+          <img src={logo} alt="Imperio Digital" className="brand-logo" />
+          <div>
+            <strong>Imperio Digital</strong>
+            <span>Simulador educativo</span>
+          </div>
+        </Link>
+
+        <nav className="navbar-links">
+          <Link to="/dashboard">Dashboard</Link>
+
+          {user?.role === "Docente" && (
+            <>
+              <Link to="/courses">Cursos</Link>
+              <Link to="/design-thinking/scenarios">Escenarios</Link>
+              <Link to="/design-thinking/scenarios/create">Crear escenario</Link>
+            </>
+          )}
+
+          {user?.role === "Estudiante" && (
+            <>
+              <Link to="/courses/available">Cursos disponibles</Link>
+              <Link to="/my-courses">Mis cursos</Link>
+              <Link to="/design-thinking/history">Historial</Link>
+            </>
+          )}
+        </nav>
+
+        <div className="user-menu">
+          <div className="user-avatar">
+            {user?.name?.charAt(0)?.toUpperCase() || "U"}
+          </div>
+
+          <div className="user-info">
+            <strong>{user?.name}</strong>
+            <span>{user?.role}</span>
+          </div>
+
+          <button onClick={handleLogout} className="logout-button">
+            Cerrar sesión
+          </button>
         </div>
-
-        <div className="navbar-links">
-  <Link to="/dashboard">Dashboard</Link>
-
-  {user?.role === "Docente" && (
-    <>
-      <Link to="/courses">Cursos</Link>
-      <Link to="/design-thinking/scenarios">Escenarios</Link>
-      <Link to="/design-thinking/scenarios/create">Crear escenario</Link>
-    </>
-  )}
-
-  {user?.role === "Estudiante" && (
-    <>
-      <Link to="/my-courses">Mis cursos</Link>
-      <Link to="/courses/available">Cursos disponibles</Link>
-      <Link to="/design-thinking/history">Historial</Link>
-    </>
-  )}
-
-  <span>{user?.name}</span>
-
-  <button
-    onClick={handleLogout}
-    style={{ width: "auto", padding: "0.5rem 1rem" }}
-  >
-    Cerrar sesión
-  </button>
-</div>
       </div>
-    </div>
+    </header>
   );
 }
 

@@ -400,11 +400,27 @@ namespace SimuladorApi.Services
                 Scenarios = course.CourseScenarios.Select(cs => new CourseScenarioDto
                 {
                     ScenarioId = cs.ScenarioId,
-                    Title = cs.Scenario?.Title ?? "",
+                    Title = string.IsNullOrWhiteSpace(cs.Scenario?.Title)
+                        ? cs.Scenario?.Name ?? ""
+                        : cs.Scenario.Title,
+                    Description = cs.Scenario?.Description ?? "",
                     Difficulty = cs.Scenario?.Difficulty ?? "",
                     IsPublished = cs.Scenario?.IsPublished ?? false,
-                    AssignedAt = cs.AssignedAt
+                    AssignedAt = cs.AssignedAt,
+                    Methodology = cs.Scenario?.Methodology ?? "",
+                    MethodologyName = GetMethodologyName(cs.Scenario?.Methodology ?? "")
                 }).ToList()
+            };
+        }
+
+        private static string GetMethodologyName(string methodologyCode)
+        {
+            return methodologyCode switch
+            {
+                "BPM" => "Business Process Management",
+                "DigitalMaturity" => "Madurez Digital",
+                "LeanStartup" => "Lean Startup",
+                _ => "Design Thinking"
             };
         }
 

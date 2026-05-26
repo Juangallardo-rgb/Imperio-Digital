@@ -14,6 +14,10 @@
 
         public string TargetUser { get; set; } = string.Empty;
 
+        public string Methodology { get; set; } = string.Empty;
+
+        public string MethodologyName { get; set; } = string.Empty;
+
         public string Difficulty { get; set; } = string.Empty;
 
         public bool IsPublished { get; set; }

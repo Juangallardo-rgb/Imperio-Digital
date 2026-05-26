@@ -137,6 +137,10 @@ function DesignThinkingScenarioDetailPage() {
         <p><strong>Problema:</strong> {scenario.problem}</p>
         <p><strong>Usuario objetivo:</strong> {scenario.targetUser}</p>
         <p><strong>Restricciones:</strong> {scenario.constraints}</p>
+        <p>
+          <strong>Metodología:</strong>{" "}
+          {scenario.methodologyName || scenario.methodology}
+        </p>
         <p><strong>Dificultad:</strong> {scenario.difficulty}</p>
 
         {scenario.isPublished ? (
@@ -177,7 +181,7 @@ function DesignThinkingScenarioDetailPage() {
       </div>
 
       <div className="card">
-        <h2>Opciones de simulación</h2>
+        <h2>Opciones de simulación metodológica</h2>
 
         {Object.keys(groupedOptions).map((group) => (
           <div key={group} className="list-item">

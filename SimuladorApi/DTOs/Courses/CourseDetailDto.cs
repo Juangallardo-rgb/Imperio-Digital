@@ -36,10 +36,16 @@
 
         public string Title { get; set; } = string.Empty;
 
+        public string Description { get; set; } = string.Empty;
+
         public string Difficulty { get; set; } = string.Empty;
 
         public bool IsPublished { get; set; }
 
         public DateTime AssignedAt { get; set; }
+
+        public string Methodology { get; set; } = string.Empty;
+
+        public string MethodologyName { get; set; } = string.Empty;
     }
 }

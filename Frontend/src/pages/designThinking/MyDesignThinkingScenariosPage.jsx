@@ -42,8 +42,8 @@ function MyDesignThinkingScenariosPage() {
   return (
     <div className="page-container">
       <div className="card">
-        <h1>Mis escenarios Design Thinking</h1>
-        <p>Gestiona los escenarios creados y publícalos para los estudiantes.</p>
+        <h1>Mis escenarios metodológicos</h1>
+        <p>Gestiona escenarios de Design Thinking, BPM, Madurez Digital y Lean Startup.</p>
 
         <Link className="button-link" to="/design-thinking/scenarios/create">
           Crear nuevo escenario
@@ -66,6 +66,10 @@ function MyDesignThinkingScenariosPage() {
             <h3>{scenario.title}</h3>
             <p>{scenario.description}</p>
             <p><strong>Empresa:</strong> {scenario.companyType}</p>
+            <p>
+            <strong>Metodología:</strong>{" "}
+            {scenario.methodologyName || scenario.methodology || "No definida"}
+            </p>
             <p><strong>Dificultad:</strong> {scenario.difficulty}</p>
 
             {scenario.isPublished ? (

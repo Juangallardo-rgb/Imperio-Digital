@@ -34,5 +34,19 @@
         public string DecisionTraceJson { get; set; } = string.Empty;
 
         public string TriggeredEventsJson { get; set; } = string.Empty;
+
+        public string MethodologyCode { get; set; } = string.Empty;
+
+        public string MethodologyName { get; set; } = string.Empty;
+
+        public List<SimulationPhaseNavigationDto> PhaseOrder { get; set; } = new();
+    }
+    public class SimulationPhaseNavigationDto
+    {
+        public string PhaseName { get; set; } = string.Empty;
+
+        public int PhaseOrder { get; set; }
+
+        public decimal PhaseWeight { get; set; }
     }
 }

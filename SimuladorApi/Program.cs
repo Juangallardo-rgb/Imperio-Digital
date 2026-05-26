@@ -58,6 +58,8 @@ builder.Services.AddScoped<AiScenarioContentService>();
 builder.Services.AddScoped<SimulationService>();
 builder.Services.AddScoped<CourseService>();
 builder.Services.AddScoped<PasswordResetService>();
+builder.Services.AddScoped<MethodologyCatalogService>();
+builder.Services.AddScoped<ScenarioOptionTemplateService>();
 
 builder.Services.AddHttpClient<OpenRouterService>();
 builder.Services.AddHttpClient<AiScenarioContentService>();
@@ -95,6 +97,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var methodologyCatalogService = scope.ServiceProvider.GetRequiredService<MethodologyCatalogService>();
+    await methodologyCatalogService.SeedDefaultMethodologiesAsync();
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();

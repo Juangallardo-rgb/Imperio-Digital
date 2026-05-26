@@ -151,7 +151,7 @@ function CourseDetailPage() {
               <option value="">Selecciona un escenario</option>
               {scenarios.map((scenario) => (
                 <option key={scenario.id} value={scenario.id}>
-                  {scenario.title} {scenario.isPublished ? "" : "(Borrador)"}
+                  {scenario.title} - {scenario.methodologyName || scenario.methodology} {scenario.isPublished ? "" : "(Borrador)"}
                 </option>
               ))}
             </select>

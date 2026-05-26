@@ -14,6 +14,8 @@
 
         public string Constraints { get; set; } = string.Empty;
 
+        public string MethodologyCode { get; set; } = "DesignThinking";
+
         public string Difficulty { get; set; } = "Media";
 
         public DateTime? AvailableFrom { get; set; }
