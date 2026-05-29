@@ -507,5 +507,9 @@ namespace SimuladorApi.Services
                 _ => "Design Thinking"
             };
         }
+        public async Task<GeneratedScenarioDraftDto> GenerateScenarioDraftAsync(string methodology)
+        {
+            return await _aiScenarioContentService.GenerateScenarioDraftAsync(methodology);
+        }
     }
 }

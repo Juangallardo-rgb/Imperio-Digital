@@ -1,7 +1,8 @@
-﻿using System.Net.Http.Headers;
+﻿using SimuladorApi.DTOs.DesignThinking;
+using SimuladorApi.Models;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using SimuladorApi.Models;
 
 namespace SimuladorApi.Services
 {
@@ -235,6 +236,59 @@ Si el caso no es e-commerce, adapta los impactos conceptualmente pero conserva e
             public string ImpactJson { get; set; } = string.Empty;
 
             public int OrderIndex { get; set; }
+        }
+        public Task<GeneratedScenarioDraftDto> GenerateScenarioDraftAsync(string methodology)
+        {
+            var normalizedMethodology = methodology?.Trim() ?? "DesignThinking";
+
+            GeneratedScenarioDraftDto draft = normalizedMethodology switch
+            {
+                "BPM" => new GeneratedScenarioDraftDto
+                {
+                    Title = "Optimización del proceso de atención de pedidos en restaurante",
+                    Description = "Un restaurante familiar recibe pedidos por WhatsApp, llamadas telefónicas y atención presencial. En horas pico, los pedidos se duplican, se confunden comandas, se retrasan entregas y el personal no cuenta con una vista clara del estado de cada orden. La gerencia busca rediseñar el proceso operativo mediante herramientas digitales que permitan mejorar tiempos, trazabilidad y satisfacción del cliente.",
+                    CompanyType = "Restaurante familiar",
+                    Problem = "El proceso de recepción, preparación y entrega de pedidos depende de pasos manuales, comunicación informal y poca trazabilidad, generando retrasos, errores en comandas y baja eficiencia operativa.",
+                    TargetUser = "Personal de cocina, cajeros, repartidores internos y clientes que realizan pedidos en horas pico.",
+                    Constraints = "Presupuesto limitado, equipo pequeño, resistencia inicial del personal, operación continua sin posibilidad de detener el restaurante y necesidad de implementar mejoras en menos de 6 semanas.",
+                    Difficulty = "Alta"
+                },
+
+                "DigitalMaturity" => new GeneratedScenarioDraftDto
+                {
+                    Title = "Diagnóstico de madurez digital en una clínica privada",
+                    Description = "Una clínica privada atiende pacientes por llamadas, mensajes y recepción presencial. Aunque utiliza algunas herramientas digitales, la información se encuentra dispersa entre agendas físicas, hojas de cálculo y sistemas no integrados. La dirección desea conocer su nivel de madurez digital para priorizar inversiones tecnológicas que mejoren la atención, la eficiencia administrativa y el uso de datos para la toma de decisiones.",
+                    CompanyType = "Clínica privada",
+                    Problem = "La organización utiliza herramientas digitales aisladas, no cuenta con integración de datos ni indicadores consolidados, lo que dificulta medir desempeño, reducir tiempos administrativos y mejorar la experiencia del paciente.",
+                    TargetUser = "Personal administrativo, médicos, pacientes recurrentes y responsables de gestión de la clínica.",
+                    Constraints = "Presupuesto moderado, datos dispersos, personal con diferentes niveles de habilidad digital, procesos sensibles por información médica y necesidad de priorizar iniciativas de alto impacto.",
+                    Difficulty = "Media"
+                },
+
+                "LeanStartup" => new GeneratedScenarioDraftDto
+                {
+                    Title = "Validación de una plataforma digital para reservas de servicios de belleza",
+                    Description = "Un emprendimiento de servicios de belleza quiere lanzar una plataforma que permita reservar citas, pagar anticipos y recibir recordatorios automáticos. El equipo aún no sabe si las clientas realmente usarían la solución ni qué funcionalidades son prioritarias. Antes de invertir en el desarrollo completo, necesita validar hipótesis mediante un MVP y medir señales reales de adopción.",
+                    CompanyType = "Emprendimiento de servicios de belleza",
+                    Problem = "El negocio quiere digitalizar la reserva de citas, pero no ha validado si sus clientas usarían una plataforma digital, qué problema les duele más ni qué propuesta de valor generaría adopción real.",
+                    TargetUser = "Mujeres entre 25 y 40 años que reservan servicios de belleza, maquillaje, uñas o tratamientos estéticos.",
+                    Constraints = "Presupuesto inicial bajo, tiempo de validación de 4 semanas, equipo pequeño, necesidad de evitar construir funcionalidades innecesarias y dependencia de feedback rápido de usuarias reales.",
+                    Difficulty = "Media"
+                },
+
+                _ => new GeneratedScenarioDraftDto
+                {
+                    Title = "Rediseño de la experiencia digital en una tienda online",
+                    Description = "Una tienda online de productos de consumo recibe tráfico constante, pero muchos usuarios abandonan el proceso de compra antes de finalizar el pago. Los clientes reportan dudas sobre costos de envío, tiempos de entrega y seguridad del pago. La empresa necesita comprender mejor la experiencia del usuario y proponer soluciones digitales centradas en sus necesidades reales.",
+                    CompanyType = "E-commerce",
+                    Problem = "La tienda presenta una alta tasa de abandono durante el checkout debido a falta de claridad, fricción en el proceso de compra y baja confianza del usuario al momento de pagar.",
+                    TargetUser = "Clientes digitales que compran productos en línea desde dispositivos móviles.",
+                    Constraints = "Presupuesto limitado, equipo de desarrollo pequeño, plazo máximo de 4 semanas, necesidad de mejorar la experiencia sin reconstruir toda la plataforma.",
+                    Difficulty = "Media"
+                }
+            };
+
+            return Task.FromResult(draft);
         }
     }
 }

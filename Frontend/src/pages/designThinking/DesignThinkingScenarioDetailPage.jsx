@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
 
@@ -99,11 +99,29 @@ function DesignThinkingScenarioDetailPage() {
     loadScenario();
   }, [id]);
 
+  const groupedOptions = useMemo(() => {
+    if (!scenario?.options) return {};
+
+    return scenario.options.reduce((acc, option) => {
+      const key = `${option.phaseName} - ${option.optionType}`;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(option);
+      return acc;
+    }, {});
+  }, [scenario]);
+
+  const totalOptions = scenario?.options?.length || 0;
+  const correctOptions = scenario?.options?.filter((option) => option.isCorrect).length || 0;
+  const incorrectOptions = totalOptions - correctOptions;
+  const totalPhases = scenario?.phaseSettings?.length || 0;
+
   if (loading) {
     return (
-      <div className="page-container">
-        <div className="card">
-          <p>Cargando escenario...</p>
+      <div className="scenario-detail-pro-page">
+        <div className="scenario-detail-hero skeleton-hero">
+          <span className="eyebrow">Detalle del escenario</span>
+          <h1>Cargando escenario...</h1>
+          <p>Preparando fases, criterios y opciones metodológicas.</p>
         </div>
       </div>
     );
@@ -111,92 +129,279 @@ function DesignThinkingScenarioDetailPage() {
 
   if (!scenario) {
     return (
-      <div className="page-container">
-        <div className="card">
-          <p>No se encontró el escenario.</p>
+      <div className="scenario-detail-pro-page">
+        <div className="scenario-empty-card">
+          <h2>No se encontró el escenario.</h2>
           {message && <div className="message">{message}</div>}
+          <Link className="scenario-action-secondary" to="/design-thinking/scenarios">
+            Volver a escenarios
+          </Link>
         </div>
       </div>
     );
   }
 
-  const groupedOptions = scenario.options.reduce((acc, option) => {
-    const key = `${option.phaseName} - ${option.optionType}`;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(option);
-    return acc;
-  }, {});
-
   return (
-    <div className="page-container">
-      <div className="card">
-        <h1>{scenario.title}</h1>
-        <p>{scenario.description}</p>
+    <div className="scenario-detail-pro-page">
+      {message && <div className="message pro-message">{message}</div>}
 
-        <p><strong>Tipo de empresa:</strong> {scenario.companyType}</p>
-        <p><strong>Problema:</strong> {scenario.problem}</p>
-        <p><strong>Usuario objetivo:</strong> {scenario.targetUser}</p>
-        <p><strong>Restricciones:</strong> {scenario.constraints}</p>
-        <p>
-          <strong>Metodología:</strong>{" "}
-          {scenario.methodologyName || scenario.methodology}
-        </p>
-        <p><strong>Dificultad:</strong> {scenario.difficulty}</p>
+      <section className="scenario-detail-hero">
+        <div>
+          <span className="eyebrow">Escenario metodológico</span>
+          <h1>{scenario.title || scenario.name}</h1>
+          <p>{scenario.description}</p>
 
-        {scenario.isPublished ? (
-          <span className="badge badge-success">Publicado</span>
-        ) : (
-          <span className="badge badge-warning">Borrador</span>
-        )}
+          <div className="scenario-hero-badges">
+            <span className={scenario.isPublished ? "status-pill green" : "status-pill gray"}>
+              {scenario.isPublished ? "Publicado" : "Borrador"}
+            </span>
 
-        <div className="grid grid-2" style={{ marginTop: "1rem" }}>
-          <button onClick={publishScenario}>
-            Publicar escenario
-          </button>
+            <span className={`difficulty-pill ${getDifficultyClass(scenario.difficulty)}`}>
+              {scenario.difficulty || "Media"}
+            </span>
 
-          <button onClick={regenerateOptions}>
-            Regenerar opciones base
-          </button>
+            <span className="methodology-chip light">
+              {getMethodologyName(scenario.methodologyName || scenario.methodology)}
+            </span>
+          </div>
+
+          <div className="scenario-detail-actions">
+            <button className="scenario-action-primary" onClick={publishScenario}>
+              Publicar escenario
+            </button>
+
+            <button className="scenario-action-secondary" onClick={regenerateOptions}>
+              Regenerar opciones base
+            </button>
+
+            <Link className="scenario-action-link" to="/design-thinking/scenarios">
+              Volver a escenarios
+            </Link>
+          </div>
         </div>
 
-        {message && <div className="message">{message}</div>}
-      </div>
+        <div className="scenario-detail-glass">
+          <span>Estado del caso</span>
+          <strong>{scenario.isPublished ? "Activo" : "Borrador"}</strong>
+          <p>
+            {totalPhases} fases · {totalOptions} opciones · {correctOptions} correctas
+          </p>
+        </div>
+      </section>
 
-      <div className="card">
-        <h2>Fases y pesos</h2>
+      <section className="scenario-detail-kpi-grid">
+        <ScenarioDetailKpi
+          label="Fases"
+          value={totalPhases}
+          detail="Etapas metodológicas"
+          variant="blue"
+        />
 
-        {scenario.phaseSettings.map((phase) => (
-          <div key={phase.id} className="list-item">
-            <h3>{phase.phaseOrder}. {phase.phaseName}</h3>
-            <p><strong>Peso:</strong> {phase.phaseWeight}%</p>
+        <ScenarioDetailKpi
+          label="Opciones"
+          value={totalOptions}
+          detail="Decisiones del estudiante"
+          variant="purple"
+        />
 
-            <h4>Criterios</h4>
-            {phase.criteria.map((criterion) => (
-              <p key={criterion.id}>
-                {criterion.criterionName} — {criterion.criterionWeight}% — {criterion.evaluationType}
-              </p>
-            ))}
+        <ScenarioDetailKpi
+          label="Correctas"
+          value={correctOptions}
+          detail="Opciones recomendadas"
+          variant="green"
+        />
+
+        <ScenarioDetailKpi
+          label="Distractores"
+          value={incorrectOptions}
+          detail="Opciones incorrectas"
+          variant="orange"
+        />
+      </section>
+
+      <section className="scenario-info-grid">
+        <div className="scenario-info-card large">
+          <span className="eyebrow">Contexto del caso</span>
+          <h2>Resumen empresarial</h2>
+
+          <div className="scenario-info-list">
+            <InfoRow label="Tipo de empresa" value={scenario.companyType} />
+            <InfoRow label="Problema" value={scenario.problem} />
+            <InfoRow label="Usuario objetivo" value={scenario.targetUser} />
+            <InfoRow label="Restricciones" value={scenario.constraints} />
           </div>
-        ))}
-      </div>
+        </div>
 
-      <div className="card">
-        <h2>Opciones de simulación metodológica</h2>
+        <div className="scenario-info-card">
+          <span className="eyebrow">Configuración</span>
+          <h2>Parámetros</h2>
 
-        {Object.keys(groupedOptions).map((group) => (
-          <div key={group} className="list-item">
-            <h3>{group}</h3>
+          <div className="scenario-config-stack">
+            <div>
+              <span>Metodología</span>
+              <strong>{getMethodologyName(scenario.methodologyName || scenario.methodology)}</strong>
+            </div>
 
-            {groupedOptions[group].map((option) => (
-              <p key={option.id}>
-                {option.isCorrect ? "✅" : "❌"} {option.text}
-              </p>
-            ))}
+            <div>
+              <span>Dificultad</span>
+              <strong>{scenario.difficulty || "Media"}</strong>
+            </div>
+
+            <div>
+              <span>Estado</span>
+              <strong>{scenario.isPublished ? "Publicado" : "Borrador"}</strong>
+            </div>
+
+            <div>
+              <span>Creación</span>
+              <strong>{formatDate(scenario.createdAt)}</strong>
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      </section>
+
+      <section className="scenario-section-card">
+        <div className="scenario-section-header">
+          <div>
+            <span className="eyebrow">Rúbrica metodológica</span>
+            <h2>Fases, pesos y criterios</h2>
+          </div>
+
+          <span className="analytics-badge">{totalPhases} fases</span>
+        </div>
+
+        <div className="phase-timeline-grid">
+          {scenario.phaseSettings.map((phase) => (
+            <article key={phase.id} className="phase-pro-card">
+              <div className="phase-card-header">
+                <span className="phase-order">{phase.phaseOrder}</span>
+                <div>
+                  <h3>{phase.phaseName}</h3>
+                  <p>Peso de la fase: <strong>{phase.phaseWeight}%</strong></p>
+                </div>
+              </div>
+
+              <div className="phase-weight-bar">
+                <div style={{ width: `${Math.min(100, Number(phase.phaseWeight || 0))}%` }}></div>
+              </div>
+
+              <div className="criteria-list">
+                {phase.criteria.map((criterion) => (
+                  <div key={criterion.id} className="criteria-row">
+                    <div>
+                      <strong>{criterion.criterionName}</strong>
+                      <span>{criterion.evaluationType}</span>
+                    </div>
+
+                    <b>{criterion.criterionWeight}%</b>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="scenario-section-card">
+        <div className="scenario-section-header">
+          <div>
+            <span className="eyebrow">Opciones de simulación</span>
+            <h2>Decisiones disponibles por fase</h2>
+          </div>
+
+          <span className="analytics-badge">{totalOptions} opciones</span>
+        </div>
+
+        <div className="option-group-grid">
+          {Object.keys(groupedOptions).map((group) => (
+            <article key={group} className="option-group-card">
+              <div className="option-group-header">
+                <h3>{group}</h3>
+                <span>{groupedOptions[group].length} opciones</span>
+              </div>
+
+              <div className="options-list-pro">
+                {groupedOptions[group].map((option) => (
+                  <div
+                    key={option.id}
+                    className={option.isCorrect ? "option-pro-row correct" : "option-pro-row incorrect"}
+                  >
+                    <div className="option-icon">
+                      {option.isCorrect ? "✓" : "×"}
+                    </div>
+
+                    <div className="option-content">
+                      <p>{option.text}</p>
+
+                      <div className="option-meta">
+                        <span>Score: {option.score ?? 0}</span>
+                        <span>Costo: {option.cost ?? 0}</span>
+                        <span>Tiempo: {option.timeCost ?? 0}</span>
+                        <span>Riesgo: {option.riskImpact ?? 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
     </div>
   );
+}
+
+function ScenarioDetailKpi({ label, value, detail, variant }) {
+  return (
+    <div className={`scenario-detail-kpi ${variant}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <p>{detail}</p>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }) {
+  return (
+    <div className="scenario-info-row">
+      <span>{label}</span>
+      <strong>{value || "No definido"}</strong>
+    </div>
+  );
+}
+
+function getMethodologyName(value) {
+  const names = {
+    DesignThinking: "Design Thinking",
+    "Design Thinking": "Design Thinking",
+    BPM: "Business Process Management",
+    "Business Process Management": "Business Process Management",
+    DigitalMaturity: "Madurez Digital",
+    "Madurez Digital": "Madurez Digital",
+    LeanStartup: "Lean Startup",
+    "Lean Startup": "Lean Startup",
+  };
+
+  return names[value] || value || "No definida";
+}
+
+function getDifficultyClass(difficulty) {
+  const value = String(difficulty || "").toLowerCase();
+
+  if (value.includes("alta")) return "high";
+  if (value.includes("baja")) return "low";
+
+  return "medium";
+}
+
+function formatDate(date) {
+  if (!date) return "Sin fecha";
+
+  try {
+    return new Date(date).toLocaleDateString();
+  } catch {
+    return "Sin fecha";
+  }
 }
 
 export default DesignThinkingScenarioDetailPage;

@@ -177,6 +177,17 @@ namespace SimuladorApi.Controllers
             return Ok(result);
         }
 
+        [Authorize(Roles = "Docente")]
+        [HttpGet("teacher-dashboard")]
+        public async Task<IActionResult> GetTeacherDashboard()
+        {
+            var teacherId = GetUserId();
+
+            var result = await _courseService.GetTeacherDashboardAnalyticsAsync(teacherId);
+
+            return Ok(result);
+        }
+
         private int GetUserId()
         {
             return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);

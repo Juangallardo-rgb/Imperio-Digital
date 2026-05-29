@@ -285,6 +285,7 @@ namespace SimuladorApi.Services
             var studentIds = course.Enrollments.Select(e => e.StudentId).ToList();
 
             var attempts = await _context.SimulationAttempts
+                .Include(a => a.Student)
                 .Include(a => a.Scenario)
                 .Where(a => a.CourseId == courseId && studentIds.Contains(a.StudentId))
                 .OrderByDescending(a => a.StartedAt)
@@ -312,7 +313,11 @@ namespace SimuladorApi.Services
                         {
                             AttemptId = a.Id,
                             ScenarioId = a.ScenarioId,
-                            ScenarioTitle = a.Scenario?.Title ?? "",
+                            ScenarioTitle = string.IsNullOrWhiteSpace(a.Scenario?.Title)
+                                ? a.Scenario?.Name ?? ""
+                                : a.Scenario.Title,
+                            Methodology = a.Scenario?.Methodology ?? "",
+                            MethodologyName = GetMethodologyName(a.Scenario?.Methodology ?? ""),
                             Status = a.Status,
                             FinalScore = a.FinalScore,
                             StartedAt = a.StartedAt,
@@ -322,7 +327,140 @@ namespace SimuladorApi.Services
                 }).ToList()
             };
         }
+        public async Task<TeacherDashboardAnalyticsDto> GetTeacherDashboardAnalyticsAsync(int teacherId)
+        {
+            var courses = await _context.Courses
+                .Include(c => c.Enrollments)
+                .Include(c => c.CourseScenarios)
+                    .ThenInclude(cs => cs.Scenario)
+                .Where(c => c.TeacherId == teacherId)
+                .ToListAsync();
 
+            var courseIds = courses.Select(c => c.Id).ToList();
+
+            var attempts = await _context.SimulationAttempts
+                .Include(a => a.Scenario)
+                .Include(a => a.Student)
+                .Where(a => a.CourseId.HasValue && courseIds.Contains(a.CourseId.Value))
+                .ToListAsync();
+
+            var finishedAttempts = attempts
+                .Where(a => IsFinished(a.Status))
+                .ToList();
+
+            var totalAttempts = attempts.Count;
+            var finishedCount = finishedAttempts.Count;
+
+            var studentsCount = courses
+                .SelectMany(c => c.Enrollments)
+                .Select(e => e.StudentId)
+                .Distinct()
+                .Count();
+
+            var activeStudentsCount = finishedAttempts
+                .Select(a => a.StudentId)
+                .Distinct()
+                .Count();
+
+            var scenariosCount = await _context.Scenarios
+                .CountAsync(s => s.CreatedByUserId == teacherId);
+
+            var globalAverage = finishedAttempts.Any()
+                ? Math.Round(finishedAttempts.Average(a => a.FinalScore), 2)
+                : 0;
+
+            var completionRate = totalAttempts > 0
+                ? Math.Round(((decimal)finishedCount / totalAttempts) * 100, 2)
+                : 0;
+
+            var courseAverages = courses.Select(course =>
+            {
+                var courseFinishedAttempts = finishedAttempts
+                    .Where(a => a.CourseId == course.Id)
+                    .ToList();
+
+                var average = courseFinishedAttempts.Any()
+                    ? Math.Round(courseFinishedAttempts.Average(a => a.FinalScore), 2)
+                    : 0;
+
+                return new CourseAverageDto
+                {
+                    CourseId = course.Id,
+                    CourseName = course.Name,
+                    StudentsCount = course.Enrollments.Count,
+                    SimulationsCount = courseFinishedAttempts.Count,
+                    AverageScore = average
+                };
+            }).ToList();
+
+            var coursesWithResults = courseAverages
+                .Where(c => c.SimulationsCount > 0)
+                .ToList();
+
+            var bestCourse = coursesWithResults
+                .OrderByDescending(c => c.AverageScore)
+                .FirstOrDefault();
+
+            var worstCourse = coursesWithResults
+                .OrderBy(c => c.AverageScore)
+                .FirstOrDefault();
+
+            var methodologyAverages = BuildMethodologyAverages(finishedAttempts);
+
+            var topMethodology = methodologyAverages
+                .Where(m => m.SimulationsCount > 0)
+                .OrderByDescending(m => m.AverageScore)
+                .FirstOrDefault();
+
+            var lowPerformanceCourses = courseAverages
+                .Where(c => c.SimulationsCount > 0 && c.AverageScore < 70)
+                .Select(c => new LowPerformanceCourseDto
+                {
+                    CourseId = c.CourseId,
+                    CourseName = c.CourseName,
+                    SimulationsCount = c.SimulationsCount,
+                    AverageScore = c.AverageScore
+                })
+                .ToList();
+
+            return new TeacherDashboardAnalyticsDto
+            {
+                Summary = new TeacherDashboardSummaryDto
+                {
+                    CoursesCount = courses.Count,
+                    StudentsCount = studentsCount,
+                    ActiveStudentsCount = activeStudentsCount,
+                    ScenariosCount = scenariosCount,
+                    TotalAttempts = totalAttempts,
+                    FinishedAttempts = finishedCount,
+                    AverageScore = globalAverage,
+                    CompletionRate = completionRate,
+                    BestCourseName = bestCourse?.CourseName ?? "Sin datos",
+                    BestCourseScore = bestCourse?.AverageScore ?? 0,
+                    WorstCourseName = worstCourse?.CourseName ?? "Sin datos",
+                    WorstCourseScore = worstCourse?.AverageScore ?? 0,
+                    TopMethodologyName = topMethodology?.MethodologyName ?? "Sin datos",
+                    TopMethodologyScore = topMethodology?.AverageScore ?? 0,
+                    RiskCoursesCount = lowPerformanceCourses.Count
+                },
+                CourseAverages = courseAverages,
+                MethodologyAverages = methodologyAverages,
+                CompletionStatus = new List<CompletionStatusDto>
+        {
+            new CompletionStatusDto
+            {
+                Name = "Finalizadas",
+                Value = finishedCount
+            },
+            new CompletionStatusDto
+            {
+                Name = "En progreso",
+                Value = Math.Max(0, totalAttempts - finishedCount)
+            }
+        },
+                LowPerformanceCourses = lowPerformanceCourses
+            };
+        }
         public async Task<SimulationResultsDto?> GetAttemptResultsForTeacherAsync(
     int courseId,
     int attemptId,
@@ -420,7 +558,8 @@ namespace SimuladorApi.Services
                 "BPM" => "Business Process Management",
                 "DigitalMaturity" => "Madurez Digital",
                 "LeanStartup" => "Lean Startup",
-                _ => "Design Thinking"
+                "DesignThinking" => "Design Thinking",
+                _ => "No definida"
             };
         }
 
@@ -428,6 +567,76 @@ namespace SimuladorApi.Services
         {
             var random = Guid.NewGuid().ToString("N")[..6].ToUpper();
             return $"IMP-{random}";
+        }
+        private static bool IsFinished(string status)
+        {
+            var normalized = status.Trim().ToLower();
+
+            return normalized == "finished" ||
+                   normalized == "finalizada" ||
+                   normalized == "completed";
+        }
+
+        private static List<MethodologyAverageDto> BuildMethodologyAverages(List<SimulationAttempt> attempts)
+        {
+            var baseMethodologies = new List<MethodologyAverageDto>
+    {
+        new MethodologyAverageDto
+        {
+            MethodologyCode = "DesignThinking",
+            MethodologyName = "Design Thinking",
+            SimulationsCount = 0,
+            AverageScore = 0
+        },
+        new MethodologyAverageDto
+        {
+            MethodologyCode = "BPM",
+            MethodologyName = "Business Process Management",
+            SimulationsCount = 0,
+            AverageScore = 0
+        },
+        new MethodologyAverageDto
+        {
+            MethodologyCode = "DigitalMaturity",
+            MethodologyName = "Madurez Digital",
+            SimulationsCount = 0,
+            AverageScore = 0
+        },
+        new MethodologyAverageDto
+        {
+            MethodologyCode = "LeanStartup",
+            MethodologyName = "Lean Startup",
+            SimulationsCount = 0,
+            AverageScore = 0
+        }
+    };
+
+            var grouped = attempts
+                .Where(a => a.Scenario != null)
+                .GroupBy(a => a.Scenario!.Methodology)
+                .ToList();
+
+            foreach (var group in grouped)
+            {
+                var methodology = baseMethodologies
+                    .FirstOrDefault(m => m.MethodologyCode == group.Key);
+
+                if (methodology == null)
+                {
+                    methodology = new MethodologyAverageDto
+                    {
+                        MethodologyCode = group.Key,
+                        MethodologyName = GetMethodologyName(group.Key)
+                    };
+
+                    baseMethodologies.Add(methodology);
+                }
+
+                methodology.SimulationsCount = group.Count();
+                methodology.AverageScore = Math.Round(group.Average(a => a.FinalScore), 2);
+            }
+
+            return baseMethodologies;
         }
     }
 }

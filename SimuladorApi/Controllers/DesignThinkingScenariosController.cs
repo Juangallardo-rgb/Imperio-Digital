@@ -132,9 +132,20 @@ namespace SimuladorApi.Controllers
             return Ok(result.Message);
         }
 
+        [Authorize(Roles = "Docente")]
+        [HttpPost("generate-draft")]
+        public async Task<IActionResult> GenerateScenarioDraft(GenerateScenarioDraftDto request)
+        {
+            var result = await _scenarioService.GenerateScenarioDraftAsync(request.Methodology);
+
+            return Ok(result);
+        }
+
         private int GetUserId()
         {
             return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         }
+
+
     }
 }

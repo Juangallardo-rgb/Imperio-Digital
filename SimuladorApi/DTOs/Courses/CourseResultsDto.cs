@@ -34,6 +34,10 @@
 
         public string ScenarioTitle { get; set; } = string.Empty;
 
+        public string Methodology { get; set; } = string.Empty;
+
+        public string MethodologyName { get; set; } = string.Empty;
+
         public string Status { get; set; } = string.Empty;
 
         public decimal FinalScore { get; set; }
