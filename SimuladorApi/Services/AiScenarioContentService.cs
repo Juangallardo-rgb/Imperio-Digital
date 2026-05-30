@@ -58,7 +58,7 @@ namespace SimuladorApi.Services
             request.Headers.Add("X-Title", siteName);
             request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 
-            _httpClient.Timeout = TimeSpan.FromSeconds(60);
+            _httpClient.Timeout = TimeSpan.FromSeconds(180);
 
             var response = await _httpClient.SendAsync(request);
 

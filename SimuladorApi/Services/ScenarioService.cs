@@ -25,9 +25,7 @@ namespace SimuladorApi.Services
             CreateDesignThinkingScenarioDto request,
             int teacherId)
         {
-            var methodologyCode = string.IsNullOrWhiteSpace(request.MethodologyCode)
-                ? "DesignThinking"
-                : request.MethodologyCode.Trim();
+            var methodologyCode = NormalizeMethodologyCode(request.MethodologyCode);
 
             var methodology = await _context.Methodologies
                 .Include(m => m.Phases)
@@ -287,7 +285,7 @@ namespace SimuladorApi.Services
                 return (false, "El escenario debe tener opciones configuradas antes de publicarse.");
 
             var phasesWithoutOptions = enabledPhases
-                .Where(p => !scenario.Options.Any(o => o.PhaseName == p.PhaseName))
+                .Where(p => !scenario.Options.Any(o => NormalizeText(o.PhaseName) == NormalizeText(p.PhaseName)))
                 .Select(p => p.PhaseName)
                 .ToList();
 
@@ -322,70 +320,316 @@ namespace SimuladorApi.Services
             if (scenario == null)
                 return (false, "Escenario no encontrado.");
 
-            _context.ScenarioOptions.RemoveRange(scenario.Options);
-            await _context.SaveChangesAsync();
+            var enabledPhaseNames = scenario.PhaseSettings
+                .Where(p => p.IsEnabled)
+                .OrderBy(p => p.PhaseOrder)
+                .Select(p => p.PhaseName)
+                .ToList();
 
-            await AddScenarioOptionsAsync(scenario.Id, scenario.Methodology);
+            if (!enabledPhaseNames.Any())
+                return (false, "El escenario no tiene fases activas.");
 
-            scenario.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            List<ScenarioOption> aiOptions;
 
-            return (true, "Opciones regeneradas correctamente según la metodología del escenario.");
+            try
+            {
+                aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
+                NormalizeAiOptionPhaseNames(aiOptions, enabledPhaseNames);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"No se pudieron generar opciones con IA. Detalle: {ex.Message}");
+            }
+
+            if (!AreOptionsValidForScenario(aiOptions, enabledPhaseNames))
+            {
+                return (
+                    false,
+                    "La IA respondió, pero las opciones generadas no coinciden con las fases de esta metodología. No se reemplazaron las opciones actuales."
+                );
+            }
+
+            foreach (var option in aiOptions)
+            {
+                option.Id = 0;
+                option.ScenarioId = scenario.Id;
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                _context.ScenarioOptions.RemoveRange(scenario.Options);
+                await _context.SaveChangesAsync();
+
+                _context.ScenarioOptions.AddRange(aiOptions);
+
+                scenario.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            return (true, $"Opciones regeneradas con IA correctamente para {GetMethodologyName(scenario.Methodology)}.");
         }
 
         private async Task AddScenarioOptionsAsync(int scenarioId, string methodologyCode)
         {
-            var phaseNames = await _context.ScenarioPhaseSettings
-                .Where(p => p.ScenarioId == scenarioId && p.IsEnabled)
-                .Select(p => p.PhaseName)
-                .ToListAsync();
+            var scenario = await _context.Scenarios
+                .Include(s => s.PhaseSettings)
+                .FirstOrDefaultAsync(s => s.Id == scenarioId);
 
-            List<ScenarioOption> options;
+            if (scenario == null)
+                throw new Exception("Escenario no encontrado para generar opciones.");
+
+            var enabledPhaseNames = scenario.PhaseSettings
+                .Where(p => p.IsEnabled)
+                .OrderBy(p => p.PhaseOrder)
+                .Select(p => p.PhaseName)
+                .ToList();
+
+            if (!enabledPhaseNames.Any())
+                throw new Exception("El escenario no tiene fases activas para generar opciones.");
+
+            List<ScenarioOption> aiOptions;
 
             try
             {
-                var scenario = await _context.Scenarios
-                    .FirstAsync(s => s.Id == scenarioId);
-
-                var aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
-
-                options = AreOptionsValidForScenario(aiOptions, phaseNames)
-                    ? aiOptions
-                    : _scenarioOptionTemplateService.GenerateBaseOptions(scenarioId, methodologyCode);
+                aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
+                NormalizeAiOptionPhaseNames(aiOptions, enabledPhaseNames);
             }
-            catch
+            catch (Exception ex)
             {
-                options = _scenarioOptionTemplateService.GenerateBaseOptions(scenarioId, methodologyCode);
+                throw new Exception($"No se pudieron generar opciones con IA. Detalle: {ex.Message}");
             }
+
+            if (!AreOptionsValidForScenario(aiOptions, enabledPhaseNames))
+            {
+                throw new Exception("La IA generó opciones inválidas o no coinciden con las fases de la metodología seleccionada.");
+            }
+
+            foreach (var option in aiOptions)
+            {
+                option.Id = 0;
+                option.ScenarioId = scenario.Id;
+            }
+
+            _context.ScenarioOptions.AddRange(aiOptions);
+        }
+        private static void NormalizeAiOptionPhaseNames(
+    List<ScenarioOption> options,
+    List<string> enabledPhaseNames)
+        {
+            if (options == null || options.Count == 0 || enabledPhaseNames.Count == 0)
+                return;
+
+            var phaseMap = enabledPhaseNames.ToDictionary(
+                p => NormalizeText(p),
+                p => p
+            );
 
             foreach (var option in options)
             {
-                option.ScenarioId = scenarioId;
+                var normalized = NormalizeText(option.PhaseName);
+
+                if (phaseMap.ContainsKey(normalized))
+                {
+                    option.PhaseName = phaseMap[normalized];
+                    continue;
+                }
+
+                var repairedPhase = TryMatchPhaseByAlias(option.PhaseName, enabledPhaseNames);
+
+                if (!string.IsNullOrWhiteSpace(repairedPhase))
+                {
+                    option.PhaseName = repairedPhase;
+                    continue;
+                }
+
+                repairedPhase = TryMatchPhaseByOptionType(option.OptionType, enabledPhaseNames);
+
+                if (!string.IsNullOrWhiteSpace(repairedPhase))
+                {
+                    option.PhaseName = repairedPhase;
+                }
             }
 
-            _context.ScenarioOptions.AddRange(options);
+            var invalidOptions = options
+                .Where(o => !enabledPhaseNames.Any(p => NormalizeText(p) == NormalizeText(o.PhaseName)))
+                .ToList();
+
+            if (!invalidOptions.Any())
+                return;
+
+            var incomingGroups = options
+                .GroupBy(o => NormalizeText(o.PhaseName))
+                .Where(g => !string.IsNullOrWhiteSpace(g.Key))
+                .ToList();
+
+            if (incomingGroups.Count == enabledPhaseNames.Count)
+            {
+                for (int i = 0; i < incomingGroups.Count; i++)
+                {
+                    foreach (var option in incomingGroups[i])
+                    {
+                        option.PhaseName = enabledPhaseNames[i];
+                    }
+                }
+            }
         }
 
-        private static bool AreOptionsValidForScenario(
-            List<ScenarioOption> options,
-            List<string> phaseNames)
+        private static string TryMatchPhaseByAlias(string phaseName, List<string> enabledPhaseNames)
         {
-            if (options == null || options.Count == 0)
-                return false;
+            var value = NormalizeText(phaseName);
 
-            if (!options.All(o => phaseNames.Contains(o.PhaseName)))
-                return false;
-
-            foreach (var phaseName in phaseNames)
+            var aliases = new Dictionary<string, string[]>
             {
-                var hasOptions = options.Any(o => o.PhaseName == phaseName);
-                var hasCorrect = options.Any(o => o.PhaseName == phaseName && o.IsCorrect);
+                ["Empatizar"] = new[] { "empathize", "empatizar", "empathy", "comprender usuario" },
+                ["Definir"] = new[] { "define", "definir", "problem", "problema" },
+                ["Idear"] = new[] { "ideate", "idear", "idea", "ideacion" },
+                ["Prototipar"] = new[] { "prototype", "prototipar", "prototipo" },
+                ["Evaluar"] = new[] { "test", "evaluar", "evaluacion", "validar" },
 
-                if (!hasOptions || !hasCorrect)
-                    return false;
+                ["Identificar proceso"] = new[] { "identify process", "identificar proceso", "proceso critico" },
+                ["Modelar proceso actual"] = new[] { "model process", "modelar proceso", "current process", "proceso actual" },
+                ["Analizar cuellos de botella"] = new[] { "bottleneck", "cuello de botella", "analizar cuellos" },
+                ["Rediseñar proceso"] = new[] { "redesign", "rediseno", "redisenar proceso", "mejora proceso" },
+                ["Monitorear indicadores"] = new[] { "monitor", "kpi", "indicadores", "monitorear indicadores" },
+
+                ["Diagnóstico inicial"] = new[] { "diagnostic", "diagnostico", "estado actual", "current state" },
+                ["Evaluar capacidades"] = new[] { "capability", "capacidades", "evaluar capacidades" },
+                ["Priorizar brechas"] = new[] { "gap", "brecha", "brechas", "priorizar brechas" },
+                ["Plan de transformación"] = new[] { "transformation plan", "plan transformacion", "iniciativa" },
+                ["Seguimiento de madurez"] = new[] { "maturity tracking", "seguimiento", "madurez" },
+
+                ["Hipótesis"] = new[] { "hypothesis", "hipotesis", "supuesto" },
+                ["MVP"] = new[] { "mvp", "minimum viable product", "producto minimo viable" },
+                ["Medición"] = new[] { "measure", "medicion", "metric", "metrica" },
+                ["Aprendizaje"] = new[] { "learn", "learning", "aprendizaje" },
+                ["Pivote o perseverancia"] = new[] { "pivot", "persevere", "pivote", "perseverancia" }
+            };
+
+            foreach (var enabledPhase in enabledPhaseNames)
+            {
+                var normalizedEnabled = NormalizeText(enabledPhase);
+
+                if (normalizedEnabled == value)
+                    return enabledPhase;
+
+                if (aliases.TryGetValue(enabledPhase, out var phaseAliases))
+                {
+                    if (phaseAliases.Any(alias => value.Contains(NormalizeText(alias))))
+                        return enabledPhase;
+                }
             }
 
-            return true;
+            return string.Empty;
+        }
+
+        private static string TryMatchPhaseByOptionType(string optionType, List<string> enabledPhaseNames)
+        {
+            var value = NormalizeText(optionType);
+
+            var optionTypeToPhase = new Dictionary<string, string>
+            {
+                ["evidence"] = "Empatizar",
+                ["painpoint"] = "Empatizar",
+                ["problemstatement"] = "Definir",
+                ["solution"] = "Idear",
+                ["prototypefeature"] = "Prototipar",
+                ["userflowstep"] = "Prototipar",
+                ["test"] = "Evaluar",
+
+                ["processevidence"] = "Identificar proceso",
+                ["processselection"] = "Identificar proceso",
+                ["currentprocessstep"] = "Modelar proceso actual",
+                ["currentprocess"] = "Modelar proceso actual",
+                ["bottleneck"] = "Analizar cuellos de botella",
+                ["processimprovement"] = "Rediseñar proceso",
+                ["redesign"] = "Rediseñar proceso",
+                ["kpi"] = "Monitorear indicadores",
+                ["kpiselection"] = "Monitorear indicadores",
+
+                ["currentstate"] = "Diagnóstico inicial",
+                ["capability"] = "Evaluar capacidades",
+                ["gap"] = "Priorizar brechas",
+                ["transformationinitiative"] = "Plan de transformación",
+                ["maturitykpi"] = "Seguimiento de madurez",
+
+                ["hypothesis"] = "Hipótesis",
+                ["mvpfeature"] = "MVP",
+                ["metric"] = "Medición",
+                ["learning"] = "Aprendizaje",
+                ["pivotdecision"] = "Pivote o perseverancia",
+                ["decision"] = "Pivote o perseverancia"
+            };
+
+            if (!optionTypeToPhase.TryGetValue(value, out var expectedPhase))
+                return string.Empty;
+
+            return enabledPhaseNames
+                .FirstOrDefault(p => NormalizeText(p) == NormalizeText(expectedPhase))
+                ?? string.Empty;
+        }
+        private void AddBaseScenarioOptionsByMethodology(int scenarioId, string methodologyCode)
+        {
+            var normalizedMethodology = NormalizeMethodologyCode(methodologyCode);
+
+            switch (normalizedMethodology)
+            {
+                case "BPM":
+                    AddBaseBpmScenarioOptions(scenarioId);
+                    break;
+
+                case "DigitalMaturity":
+                    AddBaseDigitalMaturityScenarioOptions(scenarioId);
+                    break;
+
+                case "LeanStartup":
+                    AddBaseLeanStartupScenarioOptions(scenarioId);
+                    break;
+
+                case "DesignThinking":
+                default:
+                    AddBaseScenarioOptions(scenarioId);
+                    break;
+            }
+        }
+
+        private static string NormalizeMethodologyCode(string? methodologyCode)
+        {
+            if (string.IsNullOrWhiteSpace(methodologyCode))
+                return "DesignThinking";
+
+            var value = methodologyCode.Trim();
+
+            return value switch
+            {
+                "Design Thinking" => "DesignThinking",
+                "DesignThinking" => "DesignThinking",
+                "design-thinking" => "DesignThinking",
+
+                "BPM" => "BPM",
+                "Business Process Management" => "BPM",
+                "BusinessProcessManagement" => "BPM",
+                "business-process-management" => "BPM",
+
+                "DigitalMaturity" => "DigitalMaturity",
+                "Madurez Digital" => "DigitalMaturity",
+                "MadurezDigital" => "DigitalMaturity",
+                "digital-maturity" => "DigitalMaturity",
+
+                "LeanStartup" => "LeanStartup",
+                "Lean Startup" => "LeanStartup",
+                "lean-startup" => "LeanStartup",
+
+                _ => value
+            };
         }
 
         private async Task AddPhaseSettingsFromMethodologyAsync(int scenarioId, int methodologyId)
@@ -493,13 +737,13 @@ namespace SimuladorApi.Services
         private static int GetPhaseOrder(Scenario scenario, string phaseName)
         {
             return scenario.PhaseSettings
-                .FirstOrDefault(p => p.PhaseName == phaseName)
+                .FirstOrDefault(p => NormalizeText(p.PhaseName) == NormalizeText(phaseName))
                 ?.PhaseOrder ?? 999;
         }
 
         private static string GetMethodologyName(string methodologyCode)
         {
-            return methodologyCode switch
+            return NormalizeMethodologyCode(methodologyCode) switch
             {
                 "BPM" => "Business Process Management",
                 "DigitalMaturity" => "Madurez Digital",
@@ -507,9 +751,200 @@ namespace SimuladorApi.Services
                 _ => "Design Thinking"
             };
         }
+        private static bool AreOptionsValidForScenario(
+    List<ScenarioOption> options,
+    List<string> phaseNames)
+        {
+            if (options == null || options.Count == 0)
+                return false;
+
+            var normalizedPhaseNames = phaseNames
+                .Select(NormalizeText)
+                .ToList();
+
+            if (!options.All(o => normalizedPhaseNames.Contains(NormalizeText(o.PhaseName))))
+                return false;
+
+            foreach (var phaseName in phaseNames)
+            {
+                var normalizedPhase = NormalizeText(phaseName);
+
+                var phaseOptions = options
+                    .Where(o => NormalizeText(o.PhaseName) == normalizedPhase)
+                    .ToList();
+
+                if (!phaseOptions.Any())
+                    return false;
+
+                if (!phaseOptions.Any(o => o.IsCorrect))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static string NormalizeText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return value
+                .Trim()
+                .ToLower()
+                .Replace("á", "a")
+                .Replace("é", "e")
+                .Replace("í", "i")
+                .Replace("ó", "o")
+                .Replace("ú", "u")
+                .Replace("ñ", "n");
+        }
         public async Task<GeneratedScenarioDraftDto> GenerateScenarioDraftAsync(string methodology)
         {
             return await _aiScenarioContentService.GenerateScenarioDraftAsync(methodology);
+        }
+
+        private void AddBaseScenarioOptions(int scenarioId)
+        {
+            _context.ScenarioOptions.AddRange(new List<ScenarioOption>
+            {
+                Option(scenarioId, "Empatizar", "Evidence", "Entrevista a usuarios que reportan frustración, dudas y abandono durante el proceso digital.", true, 100, 1, 0, 0, -2, "[\"user-research\",\"friction\",\"ux\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Empatizar", "Evidence", "Análisis de registros muestra que muchos usuarios abandonan antes de completar la acción principal.", true, 95, 2, 0, 0, -2, "[\"analytics\",\"abandonment\",\"conversion\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Empatizar", "Evidence", "Observación del flujo revela pasos confusos, mensajes poco claros y exceso de campos.", true, 90, 3, 0, 0, -1, "[\"user-flow\",\"friction\",\"ux\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Empatizar", "Evidence", "El principal problema es que el color del logotipo no parece moderno.", false, 20, 4, 0, 0, 5, "[\"branding\"]", 4, "Bajo", "Bajo", "Media"),
+
+                Option(scenarioId, "Definir", "ProblemStatement", "Los usuarios abandonan porque no comprenden claramente los costos, tiempos o pasos necesarios para finalizar.", true, 100, 1, 0, 0, -2, "[\"problem-definition\",\"friction\",\"user-need\"]", 3, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Definir", "ProblemStatement", "La baja confianza y la falta de información clara reducen la conversión en el canal digital.", true, 95, 2, 0, 0, -2, "[\"trust\",\"conversion\",\"clarity\"]", 3, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Definir", "ProblemStatement", "La empresa necesita publicar más contenido en redes sociales sin cambiar el flujo digital.", false, 25, 3, 0, 0, 6, "[\"social-media\"]", 3, "Bajo", "Medio", "Media"),
+
+                Option(scenarioId, "Idear", "Solution", "Simplificar el flujo digital reduciendo pasos, campos innecesarios y mensajes ambiguos.", true, 100, 1, 18, 1, -4, "[\"simplification\",\"ux\",\"conversion\"]", 3, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Idear", "Solution", "Agregar información clara sobre costos, tiempos, beneficios y seguridad antes de la acción final.", true, 95, 2, 12, 1, -3, "[\"clarity\",\"trust\",\"conversion\"]", 3, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Idear", "Solution", "Invertir todo el presupuesto en una campaña de influencers sin corregir el proceso digital.", false, 20, 3, 35, 2, 12, "[\"marketing\",\"social-media\"]", 3, "Medio", "Alto", "Baja"),
+
+                Option(scenarioId, "Prototipar", "PrototypeFeature", "Crear un prototipo navegable del flujo simplificado con mensajes de ayuda y confirmaciones claras.", true, 100, 1, 25, 2, -4, "[\"prototype\",\"ux\",\"validation\"]", 3, "Alto", "Alto", "Alta"),
+                Option(scenarioId, "Prototipar", "PrototypeFeature", "Probar una versión mínima con usuarios reales antes de desarrollar la solución completa.", true, 95, 2, 15, 1, -3, "[\"mvp\",\"user-test\",\"learning\"]", 3, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Prototipar", "PrototypeFeature", "Construir directamente una plataforma completa sin validar con usuarios.", false, 25, 3, 45, 3, 14, "[\"overbuilding\",\"risk\"]", 3, "Medio", "Alto", "Baja"),
+
+                Option(scenarioId, "Evaluar", "KPI", "Medir tasa de conversión, abandono, tiempo de finalización y satisfacción del usuario.", true, 100, 1, 6, 1, -3, "[\"kpi\",\"conversion\",\"satisfaction\"]", 3, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Evaluar", "KPI", "Comparar el desempeño antes y después del rediseño para validar mejora real.", true, 95, 2, 5, 1, -2, "[\"measurement\",\"baseline\",\"impact\"]", 3, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Evaluar", "KPI", "Evaluar únicamente el número de seguidores en redes sociales.", false, 20, 3, 5, 1, 6, "[\"vanity-metric\",\"social-media\"]", 3, "Bajo", "Bajo", "Baja")
+            });
+        }
+
+        private void AddBaseBpmScenarioOptions(int scenarioId)
+        {
+            _context.ScenarioOptions.AddRange(new List<ScenarioOption>
+            {
+                Option(scenarioId, "Identificar proceso", "ProcessEvidence", "El proceso presenta demoras recurrentes entre la solicitud inicial y la respuesta final al cliente.", true, 100, 1, 0, 0, -2, "[\"process-delay\",\"customer-response\",\"bpm\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Identificar proceso", "ProcessEvidence", "Existen múltiples responsables interviniendo sin claridad sobre quién debe aprobar cada paso.", true, 95, 2, 0, 0, -2, "[\"roles\",\"handoff\",\"approval\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Identificar proceso", "ProcessEvidence", "La falta de trazabilidad impide saber en qué etapa se encuentra cada solicitud o pedido.", true, 90, 3, 0, 0, -2, "[\"traceability\",\"visibility\",\"process\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Identificar proceso", "ProcessEvidence", "La empresa debe priorizar el cambio de colores del logotipo como proceso crítico.", false, 15, 4, 0, 0, 5, "[\"branding\"]", 4, "Bajo", "Bajo", "Media"),
+
+                Option(scenarioId, "Modelar proceso actual", "CurrentProcessStep", "Solicitud recibida → revisión manual → aprobación interna → respuesta al cliente → registro final.", true, 100, 1, 5, 1, -2, "[\"as-is\",\"manual-review\",\"approval\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Modelar proceso actual", "CurrentProcessStep", "Identificar responsables, tiempos de espera, puntos de retrabajo y transferencias entre áreas.", true, 95, 2, 5, 1, -2, "[\"handoff\",\"waiting-time\",\"rework\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Modelar proceso actual", "CurrentProcessStep", "Saltar el modelado actual y comprar directamente un software.", false, 25, 3, 30, 2, 10, "[\"software-first\",\"risk\"]", 4, "Medio", "Alto", "Baja"),
+
+                Option(scenarioId, "Analizar cuellos de botella", "Bottleneck", "La aprobación manual concentra retrasos porque depende de una sola persona o área.", true, 100, 1, 6, 1, -3, "[\"bottleneck\",\"approval\",\"delay\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Analizar cuellos de botella", "Bottleneck", "La falta de trazabilidad impide saber qué etapa genera más demoras y errores.", true, 95, 2, 6, 1, -3, "[\"traceability\",\"metrics\",\"errors\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Analizar cuellos de botella", "Bottleneck", "El problema principal es que el sitio web no tiene suficientes imágenes.", false, 20, 3, 8, 1, 7, "[\"visual-design\"]", 4, "Bajo", "Bajo", "Baja"),
+
+                Option(scenarioId, "Rediseñar proceso", "ProcessImprovement", "Automatizar estados y notificaciones para reducir consultas manuales y mejorar trazabilidad.", true, 100, 1, 22, 2, -5, "[\"automation\",\"status\",\"notifications\"]", 4, "Alto", "Alto", "Alta"),
+                Option(scenarioId, "Rediseñar proceso", "ProcessImprovement", "Eliminar pasos duplicados y definir responsables claros por etapa.", true, 95, 2, 12, 1, -4, "[\"simplification\",\"roles\",\"efficiency\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Rediseñar proceso", "ProcessImprovement", "Agregar más aprobaciones manuales para controlar cada solicitud.", false, 20, 3, 10, 2, 12, "[\"bureaucracy\",\"delay\"]", 4, "Bajo", "Medio", "Baja"),
+
+                Option(scenarioId, "Monitorear indicadores", "KPI", "Medir tiempo de ciclo del proceso, tasa de errores, retrabajo y satisfacción del cliente.", true, 100, 1, 8, 1, -3, "[\"cycleTime\",\"errorRate\",\"satisfaction\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Monitorear indicadores", "KPI", "Comparar indicadores antes y después del rediseño para validar mejora operativa.", true, 95, 2, 6, 1, -2, "[\"baseline\",\"improvement\",\"processEfficiency\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Monitorear indicadores", "KPI", "Medir únicamente la cantidad de publicaciones en redes sociales.", false, 15, 3, 4, 1, 6, "[\"vanity-metric\"]", 4, "Bajo", "Bajo", "Baja")
+            });
+        }
+
+        private void AddBaseDigitalMaturityScenarioOptions(int scenarioId)
+        {
+            _context.ScenarioOptions.AddRange(new List<ScenarioOption>
+            {
+                Option(scenarioId, "Diagnóstico inicial", "CurrentState", "La organización usa herramientas digitales aisladas sin integración entre áreas.", true, 100, 1, 0, 0, -2, "[\"digitalMaturity\",\"silos\",\"tools\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Diagnóstico inicial", "CurrentState", "Los datos se registran manualmente y no se usan para tomar decisiones.", true, 95, 2, 0, 0, -2, "[\"dataUsage\",\"manual\",\"decision-making\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Diagnóstico inicial", "CurrentState", "El principal indicador de madurez digital es tener muchos seguidores en redes.", false, 20, 3, 0, 0, 6, "[\"social-media\",\"vanity-metric\"]", 4, "Bajo", "Bajo", "Baja"),
+
+                Option(scenarioId, "Evaluar capacidades", "Capability", "Evaluar procesos, datos, tecnología, cultura digital y experiencia del cliente.", true, 100, 1, 8, 1, -3, "[\"capability\",\"culture\",\"technology\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Evaluar capacidades", "Capability", "Identificar el nivel de automatización, integración de sistemas y calidad de datos.", true, 95, 2, 8, 1, -3, "[\"automation\",\"integration\",\"data-quality\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Evaluar capacidades", "Capability", "Evaluar únicamente si la marca tiene una imagen visual moderna.", false, 25, 3, 6, 1, 6, "[\"branding\"]", 4, "Bajo", "Bajo", "Media"),
+
+                Option(scenarioId, "Priorizar brechas", "Gap", "Priorizar brechas que afectan eficiencia operativa, experiencia del cliente y uso de datos.", true, 100, 1, 8, 1, -3, "[\"gap\",\"processEfficiency\",\"satisfaction\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Priorizar brechas", "Gap", "Elegir brechas críticas según impacto, urgencia, costo y viabilidad de implementación.", true, 95, 2, 7, 1, -2, "[\"impact\",\"priority\",\"viability\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "Priorizar brechas", "Gap", "Priorizar primero el cambio completo del logotipo corporativo.", false, 20, 3, 10, 1, 7, "[\"branding\"]", 4, "Bajo", "Bajo", "Baja"),
+
+                Option(scenarioId, "Plan de transformación", "TransformationInitiative", "Implementar integración de datos y tableros de indicadores para decisiones gerenciales.", true, 100, 1, 25, 2, -4, "[\"dataUsage\",\"dashboard\",\"analytics\"]", 4, "Alto", "Alto", "Alta"),
+                Option(scenarioId, "Plan de transformación", "TransformationInitiative", "Automatizar procesos repetitivos de alto impacto antes de invertir en soluciones complejas.", true, 95, 2, 22, 2, -4, "[\"automation\",\"processEfficiency\",\"quick-win\"]", 4, "Alto", "Alto", "Alta"),
+                Option(scenarioId, "Plan de transformación", "TransformationInitiative", "Comprar varias plataformas sin priorizar brechas ni capacitar usuarios.", false, 20, 3, 45, 3, 15, "[\"overbuilding\",\"risk\"]", 4, "Medio", "Alto", "Baja"),
+
+                Option(scenarioId, "Seguimiento de madurez", "MaturityKpi", "Medir madurez digital, adopción de herramientas, uso de datos y eficiencia operativa.", true, 100, 1, 8, 1, -3, "[\"digitalMaturity\",\"digitalAdoption\",\"dataUsage\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Seguimiento de madurez", "MaturityKpi", "Definir revisiones periódicas para comparar avances contra la línea base.", true, 95, 2, 6, 1, -2, "[\"baseline\",\"monitoring\",\"continuous-improvement\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Seguimiento de madurez", "MaturityKpi", "Medir solamente número de publicaciones en redes sociales.", false, 20, 3, 4, 1, 6, "[\"vanity-metric\"]", 4, "Bajo", "Bajo", "Baja")
+            });
+        }
+
+        private void AddBaseLeanStartupScenarioOptions(int scenarioId)
+        {
+            _context.ScenarioOptions.AddRange(new List<ScenarioOption>
+            {
+                Option(scenarioId, "Hipótesis", "Hypothesis", "Los usuarios abandonan porque no perciben suficiente valor antes de completar la acción principal.", true, 100, 1, 0, 0, -2, "[\"hypothesis\",\"value-proposition\",\"conversion\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Hipótesis", "Hypothesis", "Si se reduce la fricción inicial, aumentará la conversión de usuarios interesados.", true, 95, 2, 0, 0, -2, "[\"friction\",\"conversionRate\",\"experiment\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Hipótesis", "Hypothesis", "El principal problema es que el logo no tiene colores modernos.", false, 20, 3, 0, 0, 5, "[\"branding\"]", 4, "Bajo", "Bajo", "Media"),
+
+                Option(scenarioId, "MVP", "MvpFeature", "Crear una versión mínima que permita validar la propuesta de valor con usuarios reales.", true, 100, 1, 20, 2, -4, "[\"mvp\",\"validatedLearning\",\"user-test\"]", 4, "Alto", "Medio", "Alta"),
+                Option(scenarioId, "MVP", "MvpFeature", "Lanzar una landing page o prototipo funcional para medir interés antes de construir todo.", true, 95, 2, 14, 1, -3, "[\"landing-page\",\"experimentVelocity\",\"conversionRate\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "MVP", "MvpFeature", "Desarrollar el producto completo con todas las funcionalidades desde el inicio.", false, 20, 3, 50, 4, 15, "[\"overbuilding\",\"risk\"]", 4, "Medio", "Alto", "Baja"),
+
+                Option(scenarioId, "Medición", "Metric", "Medir conversión, intención de uso, satisfacción y aprendizaje validado.", true, 100, 1, 7, 1, -3, "[\"conversionRate\",\"satisfaction\",\"validatedLearning\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Medición", "Metric", "Usar métricas accionables que permitan decidir si la hipótesis se valida o no.", true, 95, 2, 6, 1, -2, "[\"actionable-metric\",\"learning\",\"experiment\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Medición", "Metric", "Medir únicamente likes y seguidores sin relacionarlos con adopción real.", false, 20, 3, 4, 1, 6, "[\"vanity-metric\",\"social-media\"]", 4, "Bajo", "Bajo", "Baja"),
+
+                Option(scenarioId, "Aprendizaje", "Learning", "Comparar resultados del experimento con la hipótesis inicial y documentar aprendizajes.", true, 100, 1, 6, 1, -3, "[\"learning\",\"validatedLearning\",\"evidence\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Aprendizaje", "Learning", "Identificar qué comportamiento real del usuario confirma o contradice la propuesta de valor.", true, 95, 2, 6, 1, -2, "[\"user-behavior\",\"evidence\",\"value-proposition\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Aprendizaje", "Learning", "Ignorar los datos negativos y continuar con el plan original.", false, 15, 3, 8, 1, 10, "[\"confirmation-bias\",\"risk\"]", 4, "Bajo", "Bajo", "Baja"),
+
+                Option(scenarioId, "Pivote o perseverancia", "PivotDecision", "Perseverar si la evidencia valida la hipótesis y existen señales reales de adopción.", true, 100, 1, 8, 1, -3, "[\"persevere\",\"evidence\",\"digitalAdoption\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Pivote o perseverancia", "PivotDecision", "Pivotar si los datos muestran bajo interés o un problema distinto al supuesto inicial.", true, 95, 2, 8, 1, -3, "[\"pivot\",\"learning\",\"evidence\"]", 4, "Alto", "Bajo", "Alta"),
+                Option(scenarioId, "Pivote o perseverancia", "PivotDecision", "Seguir construyendo sin revisar métricas porque ya se invirtió tiempo.", false, 15, 3, 18, 2, 12, "[\"sunk-cost\",\"risk\"]", 4, "Bajo", "Medio", "Baja")
+            });
+        }
+
+        private static ScenarioOption Option(
+            int scenarioId,
+            string phaseName,
+            string optionType,
+            string text,
+            bool isCorrect,
+            decimal score,
+            int orderIndex,
+            decimal cost,
+            decimal timeCost,
+            decimal riskImpact,
+            string tagsJson,
+            int maxSelections,
+            string expectedImpactLevel,
+            string expectedEffortLevel,
+            string expectedViabilityLevel)
+        {
+            return new ScenarioOption
+            {
+                ScenarioId = scenarioId,
+                PhaseName = phaseName,
+                OptionType = optionType,
+                Text = text,
+                IsCorrect = isCorrect,
+                Score = score,
+                ImpactJson = "{}",
+                OrderIndex = orderIndex,
+                Cost = cost,
+                TimeCost = timeCost,
+                RiskImpact = riskImpact,
+                TagsJson = tagsJson,
+                MaxSelections = maxSelections,
+                ExpectedImpactLevel = expectedImpactLevel,
+                ExpectedEffortLevel = expectedEffortLevel,
+                ExpectedViabilityLevel = expectedViabilityLevel
+            };
         }
     }
 }

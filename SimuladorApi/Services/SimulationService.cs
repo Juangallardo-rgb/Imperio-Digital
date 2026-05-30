@@ -146,35 +146,39 @@ namespace SimuladorApi.Services
                 : phaseOrder.IndexOf(currentPhase) + 1;
 
             var options = attempt.Scenario.Options
-                .Where(o => o.PhaseName == currentPhase)
-                .OrderBy(o => o.OptionType)
-                .ThenBy(o => o.OrderIndex)
-                .Select(o => new ScenarioOptionDetailDto
-                {
-                    Id = o.Id,
-                    PhaseName = o.PhaseName,
-                    OptionType = o.OptionType,
-                    Text = o.Text,
-                    Score = o.Score,
-                    IsCorrect = o.IsCorrect,
-                    ImpactJson = o.ImpactJson,
-                    OrderIndex = o.OrderIndex,
-                    Cost = o.Cost,
-                    TimeCost = o.TimeCost,
-                    RiskImpact = o.RiskImpact,
-                    TagsJson = o.TagsJson,
-                    MaxSelections = o.MaxSelections,
-                    ExpectedImpactLevel = o.ExpectedImpactLevel,
-                    ExpectedEffortLevel = o.ExpectedEffortLevel,
-                    ExpectedViabilityLevel = o.ExpectedViabilityLevel
-                })
-                .ToList();
+    .Where(o => NormalizePhaseName(o.PhaseName) == NormalizePhaseName(currentPhase))
+    .OrderBy(o => o.OrderIndex)
+    .Select(o => new ScenarioOptionDetailDto
+    {
+        Id = o.Id,
+        PhaseName = o.PhaseName,
+        OptionType = o.OptionType,
+        Text = o.Text,
+        Score = o.Score,
+        IsCorrect = o.IsCorrect,
+        ImpactJson = o.ImpactJson,
+        OrderIndex = o.OrderIndex,
+        Cost = o.Cost,
+        TimeCost = o.TimeCost,
+        RiskImpact = o.RiskImpact,
+        TagsJson = o.TagsJson,
+        MaxSelections = o.MaxSelections,
+        ExpectedImpactLevel = o.ExpectedImpactLevel,
+        ExpectedEffortLevel = o.ExpectedEffortLevel,
+        ExpectedViabilityLevel = o.ExpectedViabilityLevel
+    })
+    .ToList();
 
             return new CurrentSimulationDto
             {
                 AttemptId = attempt.Id,
                 ScenarioId = attempt.ScenarioId,
                 ScenarioTitle = attempt.Scenario.Title,
+                ScenarioDescription = attempt.Scenario.Description,
+                ScenarioProblem = attempt.Scenario.Problem,
+                ScenarioCompanyType = attempt.Scenario.CompanyType,
+                ScenarioTargetUser = attempt.Scenario.TargetUser,
+                ScenarioConstraints = attempt.Scenario.Constraints,
                 MethodologyCode = attempt.Scenario.Methodology,
                 MethodologyName = GetMethodologyName(attempt.Scenario.Methodology),
                 PhaseOrder = attempt.Scenario.PhaseSettings
@@ -201,6 +205,21 @@ namespace SimuladorApi.Services
                 DecisionTraceJson = attempt.DecisionTraceJson,
                 TriggeredEventsJson = attempt.TriggeredEventsJson
             };
+        }
+        private static string NormalizePhaseName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return value
+                .Trim()
+                .ToLower()
+                .Replace("á", "a")
+                .Replace("é", "e")
+                .Replace("í", "i")
+                .Replace("ó", "o")
+                .Replace("ú", "u")
+                .Replace("ñ", "n");
         }
 
         public async Task<(bool Success, string Message, SubmitPhaseResultDto? Result)> SubmitPhaseAsync(

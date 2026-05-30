@@ -8,6 +8,16 @@
 
         public string ScenarioTitle { get; set; } = string.Empty;
 
+        public string ScenarioDescription { get; set; } = string.Empty;
+
+        public string ScenarioProblem { get; set; } = string.Empty;
+
+        public string ScenarioCompanyType { get; set; } = string.Empty;
+
+        public string ScenarioTargetUser { get; set; } = string.Empty;
+
+        public string ScenarioConstraints { get; set; } = string.Empty;
+
         public string Status { get; set; } = string.Empty;
 
         public string CurrentPhaseName { get; set; } = string.Empty;

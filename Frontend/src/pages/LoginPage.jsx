@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import api from "../api/api";
 import { getToken } from "../utils/auth";
 import logo from "../assets/imperio-logo.png";
 
 function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("docente@test.com");
+  const [password, setPassword] = useState("123456");
   const [message, setMessage] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const navigate = useNavigate();
 
@@ -23,9 +23,9 @@ function LoginPage() {
   const handleLogin = async (e) => {
     e.preventDefault();
 
-    if (isSubmitting) return;
+    if (isLoading) return;
 
-    setIsSubmitting(true);
+    setIsLoading(true);
     setMessage("");
 
     try {
@@ -34,9 +34,7 @@ function LoginPage() {
         password,
       });
 
-      const token = response.data.token;
-      localStorage.setItem("token", token);
-
+      localStorage.setItem("token", response.data.token);
       navigate("/dashboard");
     } catch (error) {
       if (error.response) {
@@ -47,91 +45,106 @@ function LoginPage() {
         setMessage(`Error: ${error.message}`);
       }
     } finally {
-      setIsSubmitting(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <main className="login-shell">
-      <section className="login-left-panel">
-        <div className="login-brand">
+    <main className="capstone-login-page">
+      <header className="capstone-login-header">
+        <div className="capstone-brand">
           <img src={logo} alt="Imperio Digital" />
           <div>
-            <h1>Imperio Digital</h1>
-            <p>Simulador de transformación digital</p>
+            <strong>Imperio Digital</strong>
+            <span>Simulador de Transformación Digital</span>
           </div>
         </div>
 
-        <div className="login-copy">
-          <span className="eyebrow">Aprendizaje basado en simulación</span>
-          <h2>Decide, simula y aprende metodologías empresariales.</h2>
+        <div className="capstone-header-badge">
+          Universidad de las Américas · Negocios Digitales
+        </div>
+      </header>
+
+      <section className="capstone-login-shell">
+        <div className="capstone-login-copy">
+          <span className="capstone-tag">Simulación académica aplicada</span>
+
+          <h1>
+            Entrena decisiones de transformación digital en escenarios de negocio.
+          </h1>
+
           <p>
-            Resuelve escenarios aplicando Design Thinking, BPM, Madurez Digital
-            y Lean Startup con KPIs, retroalimentación y decisiones estratégicas.
-          </p>
-        </div>
-
-        <div className="login-features">
-          <div>
-            <strong>4</strong>
-            <span>Metodologías</span>
-          </div>
-          <div>
-            <strong>KPIs</strong>
-            <span>Resultados medibles</span>
-          </div>
-          <div>
-            <strong>IA</strong>
-            <span>Opciones y feedback</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="login-right-panel">
-        <div className="login-card-pro">
-          <div className="mobile-login-logo">
-            <img src={logo} alt="Imperio Digital" />
-          </div>
-
-          <span className="eyebrow">Bienvenido</span>
-          <h1>Iniciar sesión</h1>
-          <p className="login-subtitle">
-            Accede como docente o estudiante para continuar con tus simulaciones.
+            Plataforma educativa para que estudiantes de Negocios Digitales analicen
+            casos, apliquen metodologías empresariales y reciban resultados basados en
+            indicadores, desempeño y retroalimentación.
           </p>
 
-          <form onSubmit={handleLogin}>
-            <div className="form-group">
-              <label>Correo electrónico</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="docente@test.com"
-                required
-              />
+          <div className="capstone-method-grid">
+            <div>
+              <b>01</b>
+              <span>Design Thinking</span>
+            </div>
+            <div>
+              <b>02</b>
+              <span>BPM</span>
+            </div>
+            <div>
+              <b>03</b>
+              <span>Madurez Digital</span>
+            </div>
+            <div>
+              <b>04</b>
+              <span>Lean Startup</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="capstone-access-panel">
+          <div className="capstone-login-card">
+            <div className="capstone-card-title">
+              <span>Acceso seguro</span>
+              <h2>Iniciar sesión</h2>
+              <p>
+                Ingresa para continuar con escenarios, cursos, simulaciones y resultados.
+              </p>
             </div>
 
-            <div className="form-group">
-              <label>Contraseña</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Ingresa tu contraseña"
-                required
-              />
+            <form onSubmit={handleLogin}>
+              <div className="capstone-field">
+                <label>Correo</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="correo@udla.edu.ec"
+                  autoComplete="email"
+                  required
+                />
+              </div>
+
+              <div className="capstone-field">
+                <label>Contraseña</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Ingresa tu contraseña"
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+
+              <button className="capstone-login-action" type="submit" disabled={isLoading}>
+                {isLoading ? "Verificando..." : "Acceder"}
+              </button>
+            </form>
+
+            <div className="capstone-login-links">
+              <Link to="/forgot-password">Recuperar contraseña</Link>
             </div>
 
-            <button className="primary-action login-action" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Ingresando..." : "Iniciar sesión"}
-            </button>
-          </form>
-
-          <Link className="auth-link" to="/forgot-password">
-            ¿Olvidaste tu contraseña?
-          </Link>
-
-          {message && <div className="message login-message">{message}</div>}
+            {message && <div className="capstone-error">{message}</div>}
+          </div>
         </div>
       </section>
     </main>
