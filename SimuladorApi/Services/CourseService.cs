@@ -9,10 +9,14 @@ namespace SimuladorApi.Services
     public class CourseService
     {
         private readonly AppDbContext _context;
+        private readonly IRealtimeNotificationService _realtime;
 
-        public CourseService(AppDbContext context)
+        public CourseService(
+            AppDbContext context,
+            IRealtimeNotificationService realtime)
         {
             _context = context;
+            _realtime = realtime;
         }
 
         public async Task<CourseDetailDto> CreateCourseAsync(int teacherId, CreateCourseDto request)
@@ -29,6 +33,10 @@ namespace SimuladorApi.Services
 
             _context.Courses.Add(course);
             await _context.SaveChangesAsync();
+            await _realtime.NotifyCoursesChangedAsync(
+                 "Created",
+                 course.Id
+             );
 
             return await GetCourseDetailAsync(course.Id, teacherId)
                    ?? throw new Exception("No se pudo recuperar el curso creado.");
@@ -84,6 +92,10 @@ namespace SimuladorApi.Services
             course.IsActive = request.IsActive;
 
             await _context.SaveChangesAsync();
+            await _realtime.NotifyCoursesChangedAsync(
+                "Updated",
+                course.Id
+            );
 
             return await GetCourseDetailAsync(course.Id, teacherId);
         }
@@ -158,6 +170,10 @@ namespace SimuladorApi.Services
 
             _context.CourseEnrollments.Add(enrollment);
             await _context.SaveChangesAsync();
+            await _realtime.NotifyEnrollmentsChangedAsync(
+                courseId,
+                studentId
+            );
 
             return (true, "Inscripción realizada correctamente.");
         }
@@ -247,6 +263,14 @@ namespace SimuladorApi.Services
 
             _context.CourseScenarios.AddRange(newAssignments);
             await _context.SaveChangesAsync();
+            await Task.WhenAll(
+                newAssignments.Select(assignment =>
+                    _realtime.NotifyCourseScenariosChangedAsync(
+                        assignment.CourseId,
+                        assignment.ScenarioId
+                    )
+                )
+            );
 
             return (true, $"Escenario asignado a {newAssignments.Count} curso(s).");
         }

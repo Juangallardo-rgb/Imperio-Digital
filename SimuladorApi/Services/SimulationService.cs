@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SimuladorApi.Data;
 using SimuladorApi.DTOs.DesignThinking;
 using SimuladorApi.Models;
@@ -12,17 +13,23 @@ namespace SimuladorApi.Services
         private readonly ScoringService _scoringService;
         private readonly AiFeedbackService _aiFeedbackService;
         private readonly KpiSimulationService _kpiSimulationService;
+        private readonly IRealtimeNotificationService _realtime;
+        private readonly ILogger<SimulationService> _logger;
 
         public SimulationService(
             AppDbContext context,
             ScoringService scoringService,
             AiFeedbackService aiFeedbackService,
-            KpiSimulationService kpiSimulationService)
+            KpiSimulationService kpiSimulationService,
+            IRealtimeNotificationService realtime,
+            ILogger<SimulationService> logger)
         {
             _context = context;
             _scoringService = scoringService;
             _aiFeedbackService = aiFeedbackService;
             _kpiSimulationService = kpiSimulationService;
+            _realtime = realtime;
+            _logger = logger;
         }
 
         public async Task<(bool Success, string Message, int AttemptId)> StartSimulationAsync(
@@ -113,6 +120,12 @@ namespace SimuladorApi.Services
 
             _context.SimulationAttempts.Add(attempt);
             await _context.SaveChangesAsync();
+
+            await NotifyResultsChangedSafelyAsync(
+                attempt.CourseId,
+                studentId,
+                attempt.Id
+            );
 
             return (true, "Simulación iniciada correctamente.", attempt.Id);
         }
@@ -370,6 +383,12 @@ namespace SimuladorApi.Services
             _context.SimulationPhaseResponses.Add(phaseResponse);
             await _context.SaveChangesAsync();
 
+            await NotifyResultsChangedSafelyAsync(
+                attempt.CourseId,
+                studentId,
+                attempt.Id
+            );
+
             var result = new SubmitPhaseResultDto
             {
                 AttemptId = attempt.Id,
@@ -457,6 +476,12 @@ namespace SimuladorApi.Services
 
             await _context.SaveChangesAsync();
 
+            await NotifyResultsChangedSafelyAsync(
+                attempt.CourseId,
+                studentId,
+                attempt.Id
+            );
+
             return (true, "Simulación finalizada correctamente.");
         }
 
@@ -520,6 +545,29 @@ namespace SimuladorApi.Services
                     Status = a.Status
                 })
                 .ToListAsync();
+        }
+
+        private async Task NotifyResultsChangedSafelyAsync(
+            int? courseId,
+            int studentId,
+            int attemptId)
+        {
+            try
+            {
+                await _realtime.NotifyResultsChangedAsync(
+                    courseId,
+                    studentId,
+                    attemptId
+                );
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "La simulación se guardó, pero no se pudo enviar la notificación en tiempo real para el intento {AttemptId}.",
+                    attemptId
+                );
+            }
         }
 
         private static string GetMethodologyName(string methodologyCode)

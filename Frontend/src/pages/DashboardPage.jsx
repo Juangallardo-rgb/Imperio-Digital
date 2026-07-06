@@ -1,91 +1,124 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api/api";
 import { getToken, getUserFromToken } from "../utils/auth";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
+
+const TEACHER_DASHBOARD_EVENTS = [
+  "CoursesChanged",
+  "EnrollmentsChanged",
+  "CourseScenariosChanged",
+  "ResultsChanged",
+];
+
+const STUDENT_DASHBOARD_EVENTS = [
+  "CoursesChanged",
+  "EnrollmentsChanged",
+  "CourseScenariosChanged",
+  "ResultsChanged",
+];
+
+const EMPTY_EVENTS = [];
 
 function DashboardPage() {
-  const user = getUserFromToken();
+  const user = useMemo(() => getUserFromToken(), []);
+  const token = useMemo(() => getToken(), []);
 
-  const [teacherScenarios, setTeacherScenarios] = useState([]);
-  const [teacherCourses, setTeacherCourses] = useState([]);
-  const [courseAnalytics, setCourseAnalytics] = useState([]);
   const [studentHistory, setStudentHistory] = useState([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [teacherAnalytics, setTeacherAnalytics] = useState(null);
 
-  const token = getToken();
+  const loadDashboardData = useCallback(
+    async (showLoader = false) => {
+      if (!user || !token) {
+        if (showLoader) {
+          setLoading(false);
+        }
 
-  useEffect(() => {
-    if (!user) return;
+        return;
+      }
 
-    const loadDashboardData = async () => {
-      setLoading(true);
-      setMessage("");
+      if (showLoader) {
+        setLoading(true);
+        setMessage("");
+      }
 
       try {
         if (user.role === "Docente") {
-  const analyticsResponse = await api.get("/courses/teacher-dashboard", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-console.log("ANALYTICS DOCENTE:", analyticsResponse.data);
+          const analyticsResponse = await api.get(
+            "/courses/teacher-dashboard",
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
 
-  setTeacherAnalytics(analyticsResponse.data);
-
-  const coursesResponse = await api.get("/courses/my", {
-  headers: {
-    Authorization: `Bearer ${token}`,
-  },
-});
-
-  const courses = coursesResponse.data || [];
-  setTeacherCourses(courses);
-
-  const analytics = await Promise.all(
-    courses.map(async (course) => {
-      try {
-        const resultsResponse = await api.get(`/courses/${course.id}/results`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        return normalizeCourseAnalytics(course, resultsResponse.data);
-      } catch {
-        return normalizeCourseAnalytics(course, null);
-      }
-    })
-  );
-
-  setCourseAnalytics(analytics);
-}
+          setTeacherAnalytics(analyticsResponse.data);
+        }
 
         if (user.role === "Estudiante") {
-          const response = await api.get("/design-thinking/simulations/my-history", {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
+          const historyResponse = await api.get(
+            "/design-thinking/simulations/my-history",
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
 
-          setStudentHistory(response.data || []);
+          setStudentHistory(
+            Array.isArray(historyResponse.data)
+              ? historyResponse.data
+              : []
+          );
         }
       } catch (error) {
         console.error("Error cargando dashboard:", error);
 
-        if (error.response) {
-          setMessage(`Error ${error.response.status}: ${JSON.stringify(error.response.data)}`);
-        } else {
-          setMessage("No se pudo cargar la información del dashboard.");
+        if (showLoader) {
+          if (error.response) {
+            setMessage(
+              `Error ${error.response.status}: ${JSON.stringify(
+                error.response.data
+              )}`
+            );
+          } else {
+            setMessage(
+              "No se pudo cargar la información del dashboard."
+            );
+          }
         }
       } finally {
-        setLoading(false);
+        if (showLoader) {
+          setLoading(false);
+        }
       }
-    };
+    },
+    [token, user]
+  );
 
-    loadDashboardData();
-  }, [user?.role]);
+  const refreshDashboard = useCallback(() => {
+    return loadDashboardData(false);
+  }, [loadDashboardData]);
+
+  const dashboardEvents =
+    user?.role === "Docente"
+      ? TEACHER_DASHBOARD_EVENTS
+      : user?.role === "Estudiante"
+      ? STUDENT_DASHBOARD_EVENTS
+      : EMPTY_EVENTS;
+
+  useRealtimeRefresh(
+    dashboardEvents,
+    refreshDashboard,
+    15000
+  );
+
+  useEffect(() => {
+    void loadDashboardData(true);
+  }, [loadDashboardData]);
 
   if (!user) {
     return (
@@ -104,7 +137,10 @@ console.log("ANALYTICS DOCENTE:", analyticsResponse.data);
           <div>
             <span className="eyebrow">Imperio Digital</span>
             <h1>Cargando dashboard...</h1>
-            <p>Preparando indicadores, gráficos y resumen del sistema.</p>
+            <p>
+              Preparando indicadores, gráficos y resumen del
+              sistema.
+            </p>
           </div>
         </div>
       </div>
@@ -113,18 +149,29 @@ console.log("ANALYTICS DOCENTE:", analyticsResponse.data);
 
   return (
     <div className="pro-page dashboard-pro-page">
-      {message && <div className="message pro-message">{message}</div>}
+      {message && (
+        <div className="message pro-message">
+          {message}
+        </div>
+      )}
 
       {user.role === "Docente" && (
-        <TeacherDashboard user={user} analytics={teacherAnalytics} />
+        <TeacherDashboard
+          user={user}
+          analytics={teacherAnalytics}
+        />
       )}
 
       {user.role === "Estudiante" && (
-        <StudentDashboard user={user} history={studentHistory} />
+        <StudentDashboard
+          user={user}
+          history={studentHistory}
+        />
       )}
     </div>
   );
 }
+
 function TeacherDashboard({ user, analytics }) {
   const summary = analytics?.summary || {};
 

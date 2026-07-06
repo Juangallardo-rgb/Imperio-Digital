@@ -3,14 +3,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SimuladorApi.Data;
+using SimuladorApi.Hubs;
 using SimuladorApi.Services;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// =====================================================
+// CONTROLADORES, SWAGGER Y SIGNALR
+// =====================================================
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSignalR();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -46,8 +51,18 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+// =====================================================
+// BASE DE DATOS
+// =====================================================
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection")
+    ));
+
+// =====================================================
+// SERVICIOS
+// =====================================================
 
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<ScenarioService>();
@@ -61,58 +76,137 @@ builder.Services.AddScoped<PasswordResetService>();
 builder.Services.AddScoped<MethodologyCatalogService>();
 builder.Services.AddScoped<ScenarioOptionTemplateService>();
 
-builder.Services.AddHttpClient<OpenRouterService>();
-builder.Services.AddHttpClient<AiScenarioContentService>();
+builder.Services.AddScoped<
+    IRealtimeNotificationService,
+    RealtimeNotificationService>();
+
+builder.Services.AddHttpClient<OpenRouterService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(180);
+});
+
+builder.Services.AddHttpClient<AiScenarioContentService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(180);
+});
+
+// =====================================================
+// CORS
+// =====================================================
+
+var allowedOrigins = new List<string>
+{
+    "http://localhost:5173",
+    "https://imperio-digital-one.vercel.app"
+};
+
+var configuredFrontendUrl =
+    builder.Configuration["Frontend:Url"]?.TrimEnd('/');
+
+if (!string.IsNullOrWhiteSpace(configuredFrontendUrl) &&
+    !allowedOrigins.Contains(
+        configuredFrontendUrl,
+        StringComparer.OrdinalIgnoreCase))
+{
+    allowedOrigins.Add(configuredFrontendUrl);
+}
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend",
-        policy =>
-        {
-            policy
-                .AllowAnyOrigin()
-                .AllowAnyHeader()
-                .AllowAnyMethod();
-        });
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy
+            .WithOrigins(allowedOrigins.ToArray())
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
 });
 
+// =====================================================
+// JWT
+// =====================================================
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.TokenValidationParameters = new TokenValidationParameters
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+
+                ValidIssuer =
+                    builder.Configuration["Jwt:Issuer"],
+
+                ValidAudience =
+                    builder.Configuration["Jwt:Audience"],
+
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(
+                            builder.Configuration["Jwt:Key"]!
+                        )
+                    )
+            };
+
+        /*
+         * En WebSockets y Server-Sent Events, SignalR puede enviar
+         * el token mediante el parámetro access_token.
+         */
+        options.Events = new JwtBearerEvents
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
-            )
+            OnMessageReceived = context =>
+            {
+                var accessToken =
+                    context.Request.Query["access_token"].ToString();
+
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrWhiteSpace(accessToken) &&
+                    path.StartsWithSegments("/hubs/realtime"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 
 builder.Services.AddAuthorization();
 
+// =====================================================
+// APLICACIÓN
+// =====================================================
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    var methodologyCatalogService = scope.ServiceProvider.GetRequiredService<MethodologyCatalogService>();
-    await methodologyCatalogService.SeedDefaultMethodologiesAsync();
+    var methodologyCatalogService =
+        scope.ServiceProvider
+            .GetRequiredService<MethodologyCatalogService>();
+
+    await methodologyCatalogService
+        .SeedDefaultMethodologiesAsync();
 }
 
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
+
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHub<RealtimeHub>("/hubs/realtime");
 
 app.Run();
