@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SimuladorApi.Data;
@@ -9,6 +10,37 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (!builder.Environment.IsDevelopment())
+{
+    var requiredConfiguration = new[]
+    {
+        "ConnectionStrings:DefaultConnection",
+        "Jwt:Key",
+        "OpenRouter:ApiKey",
+        "OpenRouter:SiteUrl",
+        "Frontend:Url"
+    };
+
+    var missingConfiguration = requiredConfiguration
+        .Where(key => string.IsNullOrWhiteSpace(builder.Configuration[key]))
+        .ToList();
+
+    if (missingConfiguration.Any())
+    {
+        throw new InvalidOperationException(
+            $"Faltan variables de produccion: {string.Join(", ", missingConfiguration)}."
+        );
+    }
+
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders =
+            ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
+
 // =====================================================
 // CONTROLADORES, SWAGGER Y SIGNALR
 // =====================================================
@@ -16,6 +48,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSignalR();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -185,6 +218,24 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler(errorApp =>
+    {
+        errorApp.Run(async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                message = "Ocurrio un error inesperado. Intenta nuevamente."
+            });
+        });
+    });
+    app.UseHsts();
+}
+
 using (var scope = app.Services.CreateScope())
 {
     var methodologyCatalogService =
@@ -195,8 +246,11 @@ using (var scope = app.Services.CreateScope())
         .SeedDefaultMethodologiesAsync();
 }
 
-app.UseSwagger();
-app.UseSwaggerUI();
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 app.UseHttpsRedirection();
 
@@ -241,5 +295,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.MapHub<RealtimeHub>("/hubs/realtime");
+
+app.MapHealthChecks("/health").AllowAnonymous();
 
 app.Run();

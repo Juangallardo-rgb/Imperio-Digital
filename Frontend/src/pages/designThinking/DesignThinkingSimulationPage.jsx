@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
+import MethodologyExperienceEngine from "../../features/methodologyExperience/engine/MethodologyExperienceEngine";
+import { createPhaseSubmission } from "../../features/methodologyExperience/engine/experienceContracts";
 
 function DesignThinkingSimulationPage() {
   const { attemptId } = useParams();
@@ -133,7 +135,30 @@ function DesignThinkingSimulationPage() {
         return prev;
       }
 
-      return [...prev, optionId];
+      const nextSelectionIds = [...prev, optionId];
+      const nextSelection = phaseOptions.filter((option) =>
+        nextSelectionIds.includes(option.id)
+      );
+      const nextCost = nextSelection.reduce(
+        (total, option) => total + Number(option.cost || 0),
+        0
+      );
+      const nextTime = nextSelection.reduce(
+        (total, option) => total + Number(option.timeCost || 0),
+        0
+      );
+
+      if (nextCost > Number(current?.remainingBudget || 0)) {
+        setMessage("Esta seleccion excede el presupuesto disponible.");
+        return prev;
+      }
+
+      if (nextTime > Number(current?.remainingTimeWeeks || 0)) {
+        setMessage("Esta seleccion excede el tiempo disponible.");
+        return prev;
+      }
+
+      return nextSelectionIds;
     });
   };
 
@@ -153,10 +178,7 @@ function DesignThinkingSimulationPage() {
 
       const response = await api.post(
         `/design-thinking/simulations/${attemptId}/phase/${current.currentPhaseName}/submit`,
-        {
-          selectedOptionIds,
-          textAnswer,
-        },
+        createPhaseSubmission({ selectedOptionIds, textAnswer }),
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -254,7 +276,7 @@ function DesignThinkingSimulationPage() {
     Math.max(0, Number(phaseFeedback?.riskLevel ?? current.riskLevel ?? 0))
   );
 
-  return (
+  const legacyExperience = (
     <div className="simulation-page">
       <div className="simulation-hero">
         <div>
@@ -583,6 +605,26 @@ function DesignThinkingSimulationPage() {
         </main>
       </div>
     </div>
+  );
+
+  return (
+    <MethodologyExperienceEngine
+      current={current}
+      selectedOptionIds={selectedOptionIds}
+      textAnswer={textAnswer}
+      phaseFeedback={phaseFeedback}
+      message={message}
+      maxSelections={maxSelections}
+      totals={totals}
+      kpiItems={kpiItems}
+      triggeredEvent={triggeredEvent}
+      submitting={submitting}
+      onToggleOption={toggleOption}
+      onTextAnswerChange={setTextAnswer}
+      onSubmit={submitPhase}
+      onContinue={continueNext}
+      fallback={legacyExperience}
+    />
   );
 }
 

@@ -29,7 +29,14 @@ namespace SimuladorApi.Services
                 throw new Exception("OpenRouter API Key no configurada.");
             }
 
-            var prompt = BuildPrompt(scenario);
+            var isDesignThinking = string.Equals(
+                scenario.Methodology,
+                "DesignThinking",
+                StringComparison.OrdinalIgnoreCase
+            );
+            var prompt = isDesignThinking
+                ? BuildDesignThinkingV2Prompt(scenario)
+                : BuildPrompt(scenario);
 
             var requestBody = new
             {
@@ -39,7 +46,9 @@ namespace SimuladorApi.Services
                     new
                     {
                         role = "system",
-                        content = "Eres un experto académico en Design Thinking, transformación digital y diseño de simuladores educativos. Generas opciones coherentes, evaluables y contextualizadas para casos de estudio."
+                        content = isDesignThinking
+                            ? "Eres un experto academico en Design Thinking y diseno de simuladores universitarios. Devuelves exclusivamente JSON valido, completo y evaluable."
+                            : "Eres un experto académico en Design Thinking, transformación digital y diseño de simuladores educativos. Generas opciones coherentes, evaluables y contextualizadas para casos de estudio."
                     },
                     new
                     {
@@ -87,6 +96,11 @@ namespace SimuladorApi.Services
                 throw new Exception("La IA no devolvió opciones válidas.");
             }
 
+            if (isDesignThinking)
+            {
+                ValidateDesignThinkingV2Options(aiOptions, scenario);
+            }
+
             return aiOptions.Select((option, index) => new ScenarioOption
             {
                 ScenarioId = scenario.Id,
@@ -95,9 +109,204 @@ namespace SimuladorApi.Services
                 Text = option.Text,
                 Score = option.IsCorrect ? 100 : 0,
                 IsCorrect = option.IsCorrect,
-                ImpactJson = option.ImpactJson ?? string.Empty,
-                OrderIndex = option.OrderIndex > 0 ? option.OrderIndex : index + 1
+                ImpactJson = SerializeImpact(option),
+                OrderIndex = option.OrderIndex > 0 ? option.OrderIndex : index + 1,
+                Cost = option.Cost ?? 0,
+                TimeCost = option.TimeCost ?? 0,
+                RiskImpact = option.RiskImpact ?? 0,
+                TagsJson = option.Tags?.Any() == true
+                    ? JsonSerializer.Serialize(option.Tags)
+                    : string.Empty,
+                MaxSelections = option.MaxSelections ?? 0,
+                ExpectedImpactLevel = option.ExpectedImpactLevel ?? string.Empty,
+                ExpectedEffortLevel = option.ExpectedEffortLevel ?? string.Empty,
+                ExpectedViabilityLevel = option.ExpectedViabilityLevel ?? string.Empty
             }).ToList();
+        }
+
+        private static string BuildDesignThinkingV2Prompt(Scenario scenario)
+        {
+            var configuredPhases = scenario.PhaseSettings
+                .Where(phase => phase.IsEnabled)
+                .OrderBy(phase => phase.PhaseOrder)
+                .Select(phase => phase.PhaseName)
+                .ToList();
+
+            if (!configuredPhases.Any())
+            {
+                configuredPhases = new List<string>
+                {
+                    "Empatizar", "Definir", "Idear", "Prototipar", "Evaluar"
+                };
+            }
+
+            return $@"
+Genera contenido estructurado para una simulacion universitaria de Design Thinking.
+
+CASO:
+Titulo: {scenario.Title}
+Descripcion: {scenario.Description}
+Empresa: {scenario.CompanyType}
+Problema: {scenario.Problem}
+Usuario objetivo: {scenario.TargetUser}
+Restricciones: {scenario.Constraints}
+Dificultad: {scenario.Difficulty}
+
+Devuelve SOLO un arreglo JSON valido. No uses markdown ni texto adicional.
+Cada objeto debe tener exactamente estas propiedades:
+phaseName, optionType, text, isCorrect, impact, tags, orderIndex, cost, timeCost, riskImpact, maxSelections, expectedImpactLevel, expectedEffortLevel, expectedViabilityLevel.
+
+REGLAS GENERALES:
+- Genera contenido exclusivamente para estas fases activas: {string.Join(", ", configuredPhases)}.
+- Aplica las instrucciones detalladas de una fase solo si esa fase esta activa.
+- Incluye opciones correctas y distractores evaluables, relacionadas con el caso.
+- tags es un arreglo JSON de palabras clave minusculas y utiles para continuidad.
+- impact es un objeto JSON con impactos KPI; usa {{}} cuando no aplique.
+- cost, timeCost y riskImpact son numeros reales del escenario.
+- expectedImpactLevel, expectedEffortLevel y expectedViabilityLevel usan Alto, Medio o Bajo cuando apliquen; en otra fase usa cadena vacia.
+- Cada fase debe tener al menos 3 opciones y una correcta.
+
+EMPATIZAR:
+- optionType Evidence o PainPoint.
+- Genera entrevistas, observaciones, metricas, quejas, comportamientos, dolores y necesidades mediante texto y tags.
+- maxSelections entre 2 y 5.
+
+DEFINIR:
+- optionType ProblemStatement.
+- Incluye formulaciones centradas en usuario, necesidad e insight, junto con sintomas y soluciones anticipadas como distractores.
+- maxSelections entre 1 y 2.
+
+IDEAR:
+- optionType Solution.
+- Incluye impacto, esfuerzo, viabilidad, costo, tiempo, riesgo y tags para cada idea.
+- impact debe usar solo claves KPI del caso de Design Thinking: cartAbandonment, conversionRate, satisfaction, purchaseTime, digitalAdoption.
+- maxSelections entre 1 y 3.
+
+PROTOTIPAR:
+- optionType PrototypeFeature o UserFlowStep.
+- Incluye funcionalidades minimas, dependencias en tags, costo, tiempo, riesgo y prioridad mediante expectedImpactLevel y expectedViabilityLevel.
+- maxSelections entre 2 y 4.
+
+EVALUAR:
+- optionType KPI o Test.
+- Incluye metricas de prueba, feedback, problemas, hallazgos y acciones de siguiente iteracion en el texto y tags.
+- maxSelections entre 1 y 3.
+
+EJEMPLO DE FORMA:
+[
+  {{
+    ""phaseName"": ""Idear"",
+    ""optionType"": ""Solution"",
+    ""text"": ""..."",
+    ""isCorrect"": true,
+    ""impact"": {{""cartAbandonment"": -5, ""conversionRate"": 0.8, ""satisfaction"": 6, ""purchaseTime"": -0.4, ""digitalAdoption"": 3}},
+    ""tags"": [""trust"", ""clarity""],
+    ""orderIndex"": 1,
+    ""cost"": 20,
+    ""timeCost"": 2,
+    ""riskImpact"": 3,
+    ""maxSelections"": 3,
+    ""expectedImpactLevel"": ""Alto"",
+    ""expectedEffortLevel"": ""Bajo"",
+    ""expectedViabilityLevel"": ""Alta""
+  }}
+]";
+        }
+
+        private static void ValidateDesignThinkingV2Options(
+            List<AiScenarioOptionDto> options,
+            Scenario scenario)
+        {
+            var expectedPhases = scenario.PhaseSettings
+                .Where(phase => phase.IsEnabled)
+                .Select(phase => phase.PhaseName)
+                .ToList();
+
+            if (!expectedPhases.Any())
+            {
+                expectedPhases = new List<string>
+                {
+                    "Empatizar", "Definir", "Idear", "Prototipar", "Evaluar"
+                };
+            }
+
+            if (options.Any(option =>
+                string.IsNullOrWhiteSpace(option.PhaseName) ||
+                string.IsNullOrWhiteSpace(option.OptionType) ||
+                string.IsNullOrWhiteSpace(option.Text) ||
+                option.Tags == null || !option.Tags.Any()))
+            {
+                throw new Exception("La IA devolvio opciones incompletas para la experiencia V2.");
+            }
+
+            foreach (var phaseName in expectedPhases)
+            {
+                var phaseOptions = options
+                    .Where(option => NormalizePhase(option.PhaseName) == NormalizePhase(phaseName))
+                    .ToList();
+
+                if (phaseOptions.Count < 3 || !phaseOptions.Any(option => option.IsCorrect))
+                {
+                    throw new Exception($"La IA no genero contenido suficiente para la fase {phaseName}.");
+                }
+
+                ValidatePhaseMetadata(phaseName, phaseOptions);
+            }
+        }
+
+        private static void ValidatePhaseMetadata(
+            string phaseName,
+            List<AiScenarioOptionDto> options)
+        {
+            var phase = NormalizePhase(phaseName);
+            var types = options
+                .Select(option => option.OptionType.Trim().ToLowerInvariant())
+                .ToList();
+
+            if (phase == "empatizar" && !types.Any(type => type is "evidence" or "painpoint"))
+                throw new Exception("Empatizar requiere evidencias o dolores de usuario.");
+
+            if (phase == "definir" && !types.Contains("problemstatement"))
+                throw new Exception("Definir requiere formulaciones de problema.");
+
+            if (phase == "idear")
+            {
+                if (!types.Contains("solution") || options.Any(option =>
+                    string.IsNullOrWhiteSpace(option.ExpectedImpactLevel) ||
+                    string.IsNullOrWhiteSpace(option.ExpectedEffortLevel) ||
+                    string.IsNullOrWhiteSpace(option.ExpectedViabilityLevel) ||
+                    option.Cost == null || option.TimeCost == null || option.RiskImpact == null ||
+                    option.Impact == null || option.Impact.Value.ValueKind != JsonValueKind.Object))
+                {
+                    throw new Exception("Idear requiere soluciones con metadata de priorizacion completa.");
+                }
+            }
+
+            if (phase == "prototipar" && !types.Any(type => type is "prototypefeature" or "userflowstep"))
+                throw new Exception("Prototipar requiere modulos o pasos de flujo.");
+
+            if (phase == "evaluar" && !types.Any(type => type is "kpi" or "test"))
+                throw new Exception("Evaluar requiere KPIs o pruebas.");
+        }
+
+        private static string SerializeImpact(AiScenarioOptionDto option)
+        {
+            if (option.Impact.HasValue && option.Impact.Value.ValueKind == JsonValueKind.Object)
+                return option.Impact.Value.GetRawText();
+
+            return option.ImpactJson ?? string.Empty;
+        }
+
+        private static string NormalizePhase(string value)
+        {
+            return value
+                .Trim()
+                .ToLowerInvariant()
+                .Replace("á", "a")
+                .Replace("é", "e")
+                .Replace("í", "i")
+                .Replace("ó", "o")
+                .Replace("ú", "u");
         }
 
         private static string BuildPrompt(Scenario scenario)
@@ -234,6 +443,24 @@ Si el caso no es e-commerce, adapta los impactos conceptualmente pero conserva e
             public bool IsCorrect { get; set; }
 
             public string ImpactJson { get; set; } = string.Empty;
+
+            public JsonElement? Impact { get; set; }
+
+            public List<string> Tags { get; set; } = new();
+
+            public decimal? Cost { get; set; }
+
+            public decimal? TimeCost { get; set; }
+
+            public decimal? RiskImpact { get; set; }
+
+            public int? MaxSelections { get; set; }
+
+            public string ExpectedImpactLevel { get; set; } = string.Empty;
+
+            public string ExpectedEffortLevel { get; set; } = string.Empty;
+
+            public string ExpectedViabilityLevel { get; set; } = string.Empty;
 
             public int OrderIndex { get; set; }
         }

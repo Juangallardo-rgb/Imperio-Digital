@@ -62,6 +62,22 @@
         public bool WasSelected { get; set; }
 
         public bool IsCorrect { get; set; }
+
+        public string ImpactJson { get; set; } = string.Empty;
+
+        public string TagsJson { get; set; } = string.Empty;
+
+        public decimal Cost { get; set; }
+
+        public decimal TimeCost { get; set; }
+
+        public decimal RiskImpact { get; set; }
+
+        public string ExpectedImpactLevel { get; set; } = string.Empty;
+
+        public string ExpectedEffortLevel { get; set; } = string.Empty;
+
+        public string ExpectedViabilityLevel { get; set; } = string.Empty;
     }
 
     public class KpiResultDto

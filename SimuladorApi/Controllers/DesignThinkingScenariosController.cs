@@ -33,6 +33,13 @@ namespace SimuladorApi.Controllers
             {
                 return BadRequest(exception.Message);
             }
+            catch
+            {
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "No se pudo crear el escenario. Intenta nuevamente."
+                );
+            }
         }
 
         [Authorize(Roles = "Docente")]

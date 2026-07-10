@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
+import { getScenarioExperienceStatus } from "../../features/methodologyExperience/adapters/legacyScenarioAdapter";
+import { isMethodologyExperienceV2Enabled } from "../../features/methodologyExperience/engine/featureFlags";
 
 function DesignThinkingScenarioDetailPage() {
   const { id } = useParams();
+  const isExperienceV2Enabled = isMethodologyExperienceV2Enabled();
 
   const [scenario, setScenario] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   const loadScenario = async () => {
     setLoading(true);
@@ -67,6 +71,9 @@ function DesignThinkingScenarioDetailPage() {
   };
 
   const regenerateOptions = async () => {
+    if (isRegenerating) return;
+
+    setIsRegenerating(true);
     setMessage("");
 
     try {
@@ -92,6 +99,8 @@ function DesignThinkingScenarioDetailPage() {
       } else {
         setMessage("No hubo respuesta del backend.");
       }
+    } finally {
+      setIsRegenerating(false);
     }
   };
 
@@ -114,6 +123,10 @@ function DesignThinkingScenarioDetailPage() {
   const correctOptions = scenario?.options?.filter((option) => option.isCorrect).length || 0;
   const incorrectOptions = totalOptions - correctOptions;
   const totalPhases = scenario?.phaseSettings?.length || 0;
+  const experienceStatus = useMemo(
+    () => getScenarioExperienceStatus(scenario),
+    [scenario]
+  );
 
   if (loading) {
     return (
@@ -170,8 +183,12 @@ function DesignThinkingScenarioDetailPage() {
               Publicar escenario
             </button>
 
-            <button className="scenario-action-secondary" onClick={regenerateOptions}>
-              Regenerar opciones base
+            <button
+              className="scenario-action-secondary"
+              onClick={regenerateOptions}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? "Generando con IA..." : "Regenerar opciones con IA"}
             </button>
 
             <Link className="scenario-action-link" to="/design-thinking/scenarios">
@@ -218,6 +235,40 @@ function DesignThinkingScenarioDetailPage() {
           variant="orange"
         />
       </section>
+
+      {isExperienceV2Enabled && experienceStatus.isDesignThinking && (
+        <section className="scenario-section-card experience-status-panel">
+          <div className="scenario-section-header">
+            <div>
+              <span className="eyebrow">Compatibilidad V2</span>
+              <h2>Estado del contenido interactivo</h2>
+            </div>
+            <span className={`analytics-badge experience-status-${experienceStatus.status}`}>
+              {experienceStatus.status === "complete"
+                ? "Completo"
+                : experienceStatus.status === "adapted"
+                ? "Adaptable"
+                : "Fallback generico"}
+            </span>
+          </div>
+          <div className="experience-status-grid">
+            {experienceStatus.phaseStatuses.map((phase) => (
+              <article key={phase.phaseName}>
+                <span>{phase.phaseName}</span>
+                <strong>{phase.interaction}</strong>
+                <p>{phase.optionCount} opciones, {phase.richOptionCount} con metadata interactiva.</p>
+                <small>
+                  {phase.status === "complete"
+                    ? "Contenido completo para V2"
+                    : phase.status === "adapted"
+                    ? "Se adaptara el contenido existente"
+                    : "Se mostrara actividad generica"}
+                </small>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="scenario-info-grid">
         <div className="scenario-info-card large">

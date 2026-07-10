@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: imperio-digital-api
+    runtime: docker
+    branch: main
+    dockerfilePath: ./SimuladorApi/Dockerfile
+    dockerContext: ./SimuladorApi
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Jwt__Key
+        sync: false
+      - key: OpenRouter__ApiKey
+        sync: false
+      - key: OpenRouter__SiteUrl
+        sync: false
+      - key: OpenRouter__SiteName
+        value: Imperio Digital
+      - key: Frontend__Url
+        sync: false

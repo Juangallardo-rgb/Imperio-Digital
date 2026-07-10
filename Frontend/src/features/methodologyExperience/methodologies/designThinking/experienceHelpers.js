@@ -1,0 +1,187 @@
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function containsAny(value, keywords) {
+  return keywords.some((keyword) => value.includes(keyword));
+}
+
+export function createEvidenceCard(option) {
+  const tags = Array.isArray(option?.tags) ? option.tags : [];
+  const searchableText = normalizeText(`${option?.text || ""} ${tags.join(" ")}`);
+  let source = "Observacion";
+
+  if (containsAny(searchableText, ["entrevista", "testimonio", "usuario dice"])) {
+    source = "Entrevista";
+  } else if (containsAny(searchableText, ["metrica", "dato", "%", "conversion", "abandono"])) {
+    source = "Metrica";
+  } else if (containsAny(searchableText, ["queja", "reclamo", "frustracion"])) {
+    source = "Queja";
+  } else if (containsAny(searchableText, ["comportamiento", "abandona", "usa", "recorrido"])) {
+    source = "Comportamiento";
+  }
+
+  let category = "evidence";
+
+  if (containsAny(searchableText, ["dolor", "friccion", "problema", "abandono", "abandona", "confianza"])) {
+    category = "pain";
+  } else if (containsAny(searchableText, ["necesita", "necesidad", "quiere", "espera"])) {
+    category = "need";
+  } else if (containsAny(searchableText, ["usa", "hace", "comportamiento", "recorrido"])) {
+    category = "behavior";
+  }
+
+  return {
+    id: Number(option?.id),
+    text: String(option?.text || ""),
+    source,
+    category,
+    tags: tags.filter((tag) => typeof tag === "string" && tag.trim()),
+  };
+}
+
+export function getTraceForPhase(decisionTrace, phaseName) {
+  const expectedPhase = normalizeText(phaseName);
+
+  return (Array.isArray(decisionTrace) ? decisionTrace : []).find(
+    (entry) => normalizeText(entry?.phaseName) === expectedPhase
+  );
+}
+
+export function buildEmpathySummary(selectedCards, classifications) {
+  const selected = Array.isArray(selectedCards) ? selectedCards : [];
+  const counts = selected.reduce(
+    (summary, card) => {
+      const category = classifications?.[card.id] || card.category;
+      summary[category] = (summary[category] || 0) + 1;
+      return summary;
+    },
+    { pain: 0, need: 0, behavior: 0, evidence: 0 }
+  );
+
+  if (selected.length === 0) {
+    return "Aun no has priorizado hallazgos para el resumen de empatia.";
+  }
+
+  return `${selected.length} hallazgo(s) priorizado(s): ${counts.pain} dolor(es), ${counts.need} necesidad(es), ${counts.behavior} comportamiento(s) y ${counts.evidence} evidencia(s).`;
+}
+
+export function buildProblemPreview({ userSegment, need, insight }) {
+  const resolvedUser = String(userSegment || "el usuario objetivo").trim();
+  const resolvedNeed = String(need || "resolver la necesidad priorizada").trim();
+  const resolvedInsight = String(insight || "la evidencia disponible").trim();
+
+  return `${resolvedUser} necesita ${resolvedNeed} porque ${resolvedInsight}.`;
+}
+
+export function getDefinitionCue(value) {
+  const text = normalizeText(value);
+
+  if (containsAny(text, ["plataforma", "aplicacion", "implementar", "crear una", "desarrollar"])) {
+    return "Revisa si la formulacion anticipa una solucion antes de delimitar el problema.";
+  }
+
+  if (containsAny(text, ["aumentar", "mejorar", "baja", "alta", "falta de"])) {
+    return "Revisa si describe un sintoma y completa la causa o necesidad del usuario.";
+  }
+
+  return "Relaciona esta formulacion con un usuario, una necesidad y evidencia concreta.";
+}
+
+export function normalizeLevel(value) {
+  const level = normalizeText(value);
+
+  if (containsAny(level, ["alto", "alta", "high"])) return "high";
+  if (containsAny(level, ["bajo", "baja", "low"])) return "low";
+  if (containsAny(level, ["medio", "media", "medium"])) return "medium";
+
+  return "";
+}
+
+export function getIdeaQuadrant(option) {
+  const impact = normalizeLevel(option?.expectedImpactLevel);
+  const effort = normalizeLevel(option?.expectedEffortLevel);
+
+  if (!impact || !effort || impact === "medium" || effort === "medium") {
+    return "unclassified";
+  }
+
+  return `${impact}-${effort}`;
+}
+
+export function buildStrategySummary(ideas) {
+  const selectedIdeas = Array.isArray(ideas) ? ideas : [];
+
+  if (selectedIdeas.length === 0) {
+    return "Aun no hay ideas priorizadas para la cartera estrategica.";
+  }
+
+  return `Cartera priorizada: ${selectedIdeas.map((idea) => idea.text).join(" | ")}`;
+}
+
+export function createPrototypeModule(option) {
+  const tags = Array.isArray(option?.tags) ? option.tags : [];
+  const impacts = option?.impacts && typeof option.impacts === "object"
+    ? Object.keys(option.impacts)
+    : [];
+
+  return {
+    id: Number(option?.id),
+    text: String(option?.text || ""),
+    optionType: String(option?.optionType || "Modulo"),
+    tags: tags.filter((tag) => typeof tag === "string" && tag.trim()),
+    impactKeys: impacts.filter((key) => typeof key === "string" && key.trim()),
+    cost: Number(option?.cost) || 0,
+    timeCost: Number(option?.timeCost) || 0,
+    riskImpact: Number(option?.riskImpact) || 0,
+    expectedImpactLevel: String(option?.expectedImpactLevel || ""),
+    expectedViabilityLevel: String(option?.expectedViabilityLevel || ""),
+  };
+}
+
+export function buildMvpSummary(modules) {
+  const selectedModules = Array.isArray(modules) ? modules : [];
+
+  if (selectedModules.length === 0) {
+    return "El lienzo del MVP aun no contiene modulos seleccionados.";
+  }
+
+  return `MVP propuesto con ${selectedModules.length} modulo(s): ${selectedModules.map((module) => module.text).join(" | ")}`;
+}
+
+export function createTestCard(option) {
+  const tags = Array.isArray(option?.tags) ? option.tags : [];
+  const text = String(option?.text || "");
+  const searchableText = normalizeText(`${text} ${tags.join(" ")}`);
+  let lens = "Hallazgo a validar";
+
+  if (containsAny(searchableText, ["error", "abandono", "friccion", "problema", "queja"])) {
+    lens = "Problema observado";
+  } else if (containsAny(searchableText, ["satisfaccion", "mejora", "adopcion", "confianza"])) {
+    lens = "Hallazgo positivo";
+  } else if (containsAny(searchableText, ["kpi", "metrica", "conversion", "tiempo"])) {
+    lens = "Indicador de prueba";
+  }
+
+  return {
+    id: Number(option?.id),
+    text,
+    lens,
+    tags: tags.filter((tag) => typeof tag === "string" && tag.trim()),
+  };
+}
+
+export function buildTestPlan(cards, actions) {
+  const selectedCards = Array.isArray(cards) ? cards : [];
+
+  if (selectedCards.length === 0) {
+    return "Aun no has definido acciones para la siguiente iteracion.";
+  }
+
+  return selectedCards
+    .map((card) => `${actions?.[card.id] || "Volver a probar"}: ${card.text}`)
+    .join(" | ");
+}

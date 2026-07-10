@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
+import { getPhaseExperienceDescriptor } from "../../features/methodologyExperience/adapters/legacyScenarioAdapter";
+import { isMethodologyExperienceV2Enabled } from "../../features/methodologyExperience/engine/featureFlags";
 
 function CreateDesignThinkingScenarioPage() {
   const navigate = useNavigate();
+  const isExperienceV2Enabled = isMethodologyExperienceV2Enabled();
 
   const [methodologies, setMethodologies] = useState([]);
 
@@ -28,6 +31,7 @@ function CreateDesignThinkingScenarioPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [creationMode, setCreationMode] = useState("manual");
   const [phaseWeights, setPhaseWeights] = useState([]);
+  const [showExperiencePreview, setShowExperiencePreview] = useState(false);
 
   const selectedMethodology = methodologies.find(
     (methodology) => methodology.code === form.methodologyCode
@@ -51,6 +55,18 @@ function CreateDesignThinkingScenarioPage() {
       : phaseWeightTotal < 100
       ? `Falta distribuir ${phaseWeightBalance}%`
       : `Has excedido el total por ${Math.abs(phaseWeightBalance)}%`;
+
+  const experiencePreviewPhases = useMemo(() => {
+    if (form.methodologyCode !== "DesignThinking") return [];
+
+    return phaseWeights
+      .filter((phase) => phase.isEnabled)
+      .sort((a, b) => a.phaseOrder - b.phaseOrder)
+      .map((phase) => ({
+        ...phase,
+        ...getPhaseExperienceDescriptor(phase.phaseName),
+      }));
+  }, [form.methodologyCode, phaseWeights]);
 
   const loadMethodologies = async () => {
     try {
@@ -119,6 +135,20 @@ function CreateDesignThinkingScenarioPage() {
         isEnabled: true,
       }))
     );
+  };
+
+  const getRequestErrorMessage = (error, fallbackMessage) => {
+    const responseData = error?.response?.data;
+
+    if (typeof responseData === "string" && responseData.trim()) {
+      return responseData;
+    }
+
+    if (typeof responseData?.message === "string") {
+      return responseData.message;
+    }
+
+    return fallbackMessage;
   };
 
   const generateScenarioWithAi = async () => {
@@ -225,14 +255,12 @@ function CreateDesignThinkingScenarioPage() {
       }, 700);
     } catch (error) {
       console.error("Error creando escenario:", error);
-
-      if (error.response) {
-        setMessage(
-          `Error ${error.response.status}: ${JSON.stringify(error.response.data)}`
-        );
-      } else {
-        setMessage("No hubo respuesta del backend.");
-      }
+      setMessage(
+        getRequestErrorMessage(
+          error,
+          "No se pudo crear el escenario. Verifica la conexion e intenta nuevamente."
+        )
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -480,6 +508,40 @@ function CreateDesignThinkingScenarioPage() {
             {selectedMethodology?.description ||
               "Selecciona una metodología para ver sus fases."}
           </p>
+
+          {isExperienceV2Enabled && experiencePreviewPhases.length > 0 && (
+            <section className="teacher-experience-preview">
+              <div>
+                <span className="eyebrow">Experiencia V2</span>
+                <h3>Vista previa para estudiante</h3>
+                <p>
+                  El contenido interactivo se generara con las opciones del escenario.
+                  El docente solo revisa la cobertura antes de publicar.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="scenario-action-secondary"
+                onClick={() => setShowExperiencePreview((visible) => !visible)}
+                aria-expanded={showExperiencePreview}
+              >
+                {showExperiencePreview ? "Ocultar vista previa" : "Ver experiencias"}
+              </button>
+
+              {showExperiencePreview && (
+                <div className="teacher-experience-preview-list">
+                  {experiencePreviewPhases.map((phase) => (
+                    <article key={phase.methodologyPhaseId}>
+                      <span>Fase {phase.phaseOrder}</span>
+                      <strong>{phase.phaseName}</strong>
+                      <p>{phase.interaction}</p>
+                      <small>Contenido: se validara al generar las opciones.</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {selectedMethodology && (
             <>

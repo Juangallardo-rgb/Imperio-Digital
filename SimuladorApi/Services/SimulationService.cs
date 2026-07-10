@@ -538,7 +538,15 @@ namespace SimuladorApi.Services
                             Text = option.Text,
                             Score = option.Score,
                             WasSelected = selectedOptionIds.Contains(option.Id),
-                            IsCorrect = option.IsCorrect
+                            IsCorrect = option.IsCorrect,
+                            ImpactJson = option.ImpactJson,
+                            TagsJson = option.TagsJson,
+                            Cost = option.Cost,
+                            TimeCost = option.TimeCost,
+                            RiskImpact = option.RiskImpact,
+                            ExpectedImpactLevel = option.ExpectedImpactLevel,
+                            ExpectedEffortLevel = option.ExpectedEffortLevel,
+                            ExpectedViabilityLevel = option.ExpectedViabilityLevel
                         })
                         .ToList();
 

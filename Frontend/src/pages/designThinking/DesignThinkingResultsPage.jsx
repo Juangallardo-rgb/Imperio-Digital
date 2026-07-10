@@ -2,9 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
+import MethodologyJourneyResults from "../../features/methodologyExperience/shared/MethodologyJourneyResults";
+import {
+  adaptDesignThinkingResults,
+  adaptGenericMethodologyResults,
+} from "../../features/methodologyExperience/methodologies/designThinking/designThinkingResultsAdapter";
+import { isMethodologyExperienceV2Enabled } from "../../features/methodologyExperience/engine/featureFlags";
 
 function DesignThinkingResultsPage() {
   const { attemptId } = useParams();
+  const isExperienceV2Enabled = isMethodologyExperienceV2Enabled();
 
   const [results, setResults] = useState(null);
   const [message, setMessage] = useState("");
@@ -65,6 +72,14 @@ function DesignThinkingResultsPage() {
       sorted,
     };
   }, [results]);
+
+  const methodologyJourney = useMemo(() => {
+    if (!isExperienceV2Enabled || !results) return null;
+
+    return results.methodologyCode === "DesignThinking"
+      ? adaptDesignThinkingResults(results)
+      : adaptGenericMethodologyResults(results);
+  }, [isExperienceV2Enabled, results]);
 
   if (loading) {
     return (
@@ -168,6 +183,8 @@ function DesignThinkingResultsPage() {
           <p>Es el punto donde debes mejorar primero.</p>
         </div>
       </section>
+
+      {methodologyJourney && <MethodologyJourneyResults journey={methodologyJourney} />}
 
       <section className="results-card-pro">
         <div className="results-section-header">

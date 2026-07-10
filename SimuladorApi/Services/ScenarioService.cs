@@ -417,30 +417,26 @@ namespace SimuladorApi.Services
             if (!enabledPhaseNames.Any())
                 throw new Exception("El escenario no tiene fases activas para generar opciones.");
 
-            List<ScenarioOption> aiOptions;
+            var baseOptions = _scenarioOptionTemplateService
+                .GenerateBaseOptions(scenario.Id, methodologyCode)
+                .Where(option => enabledPhaseNames.Any(phaseName =>
+                    NormalizeText(option.PhaseName) == NormalizeText(phaseName)))
+                .ToList();
 
-            try
-            {
-                aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
-                NormalizeAiOptionPhaseNames(aiOptions, enabledPhaseNames);
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"No se pudieron generar opciones con IA. Detalle: {ex.Message}");
-            }
+            NormalizeAiOptionPhaseNames(baseOptions, enabledPhaseNames);
 
-            if (!AreOptionsValidForScenario(aiOptions, enabledPhaseNames))
+            if (!AreOptionsValidForScenario(baseOptions, enabledPhaseNames))
             {
-                throw new Exception("La IA generó opciones inválidas o no coinciden con las fases de la metodología seleccionada.");
+                throw new Exception("No se pudieron preparar las opciones iniciales del escenario.");
             }
 
-            foreach (var option in aiOptions)
+            foreach (var option in baseOptions)
             {
                 option.Id = 0;
                 option.ScenarioId = scenario.Id;
             }
 
-            _context.ScenarioOptions.AddRange(aiOptions);
+            _context.ScenarioOptions.AddRange(baseOptions);
         }
         private static void NormalizeAiOptionPhaseNames(
     List<ScenarioOption> options,
