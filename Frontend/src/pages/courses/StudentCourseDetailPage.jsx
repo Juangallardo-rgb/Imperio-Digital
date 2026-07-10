@@ -15,6 +15,10 @@ const STUDENT_COURSE_EVENTS = [
   "ResultsChanged",
 ];
 
+function isTrue(value) {
+  return value === true || value === "true";
+}
+
 function StudentCourseDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -177,11 +181,14 @@ function StudentCourseDetailPage() {
 
   const scenarios = Array.isArray(course.scenarios)
     ? course.scenarios
+    : Array.isArray(course.Scenarios)
+    ? course.Scenarios
     : [];
 
   const publishedScenarios = scenarios.filter(
-    (scenario) => scenario.isPublished
+    (scenario) => isTrue(scenario.isPublished ?? scenario.IsPublished)
   );
+  const isCourseActive = isTrue(course.isActive ?? course.IsActive);
 
   return (
     <div className="pro-page">
@@ -216,12 +223,15 @@ function StudentCourseDetailPage() {
         </div>
 
         <div className="stat-card-pro">
-          <span>Estado del curso</span>
+          <span>Escenarios asignados</span>
           <strong>
-            {course.isActive
-              ? "Activo"
-              : "Inactivo"}
+            {scenarios.length}
           </strong>
+        </div>
+
+        <div className="stat-card-pro">
+          <span>Estado del curso</span>
+          <strong>{isCourseActive ? "Activo" : "Inactivo"}</strong>
         </div>
       </div>
 
@@ -236,10 +246,10 @@ function StudentCourseDetailPage() {
           </div>
         </div>
 
-        {publishedScenarios.length === 0 ? (
+        {scenarios.length === 0 ? (
           <div className="empty-state">
             <h2>
-              No hay escenarios publicados
+              No hay escenarios asignados
             </h2>
 
             <p>
@@ -249,9 +259,15 @@ function StudentCourseDetailPage() {
           </div>
         ) : (
           <div className="table-list">
-            {publishedScenarios.map((scenario) => {
+            {scenarios.map((scenario) => {
               const scenarioId = Number(
-                scenario.scenarioId ?? scenario.id
+                scenario.scenarioId ??
+                  scenario.ScenarioId ??
+                  scenario.id ??
+                  scenario.Id
+              );
+              const isPublished = isTrue(
+                scenario.isPublished ?? scenario.IsPublished
               );
 
               const isStarting =
@@ -263,7 +279,7 @@ function StudentCourseDetailPage() {
                   className="table-row-card"
                 >
                   <div>
-                    <strong>{scenario.title}</strong>
+                    <strong>{scenario.title ?? scenario.Title}</strong>
 
                     <p>
                       {scenario.description ||
@@ -288,8 +304,16 @@ function StudentCourseDetailPage() {
                       justifyContent: "flex-end",
                     }}
                   >
-                    <span className="status-pill success">
-                      Disponible
+                    <span
+                      className={
+                        isPublished
+                          ? "status-pill success"
+                          : "status-pill warning"
+                      }
+                    >
+                      {isPublished
+                        ? "Disponible"
+                        : "Pendiente de publicar"}
                     </span>
 
                     <button
@@ -299,7 +323,8 @@ function StudentCourseDetailPage() {
                         startSimulation(scenarioId)
                       }
                       disabled={
-                        !course.isActive ||
+                        !isCourseActive ||
+                        !isPublished ||
                         isStarting ||
                         Boolean(startingScenarioId)
                       }

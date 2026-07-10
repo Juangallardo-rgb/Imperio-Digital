@@ -13,6 +13,7 @@ namespace SimuladorApi.Services
         private readonly ScoringService _scoringService;
         private readonly AiFeedbackService _aiFeedbackService;
         private readonly KpiSimulationService _kpiSimulationService;
+        private readonly ScenarioOptionTemplateService _scenarioOptionTemplateService;
         private readonly IRealtimeNotificationService _realtime;
         private readonly ILogger<SimulationService> _logger;
 
@@ -21,6 +22,7 @@ namespace SimuladorApi.Services
             ScoringService scoringService,
             AiFeedbackService aiFeedbackService,
             KpiSimulationService kpiSimulationService,
+            ScenarioOptionTemplateService scenarioOptionTemplateService,
             IRealtimeNotificationService realtime,
             ILogger<SimulationService> logger)
         {
@@ -28,6 +30,7 @@ namespace SimuladorApi.Services
             _scoringService = scoringService;
             _aiFeedbackService = aiFeedbackService;
             _kpiSimulationService = kpiSimulationService;
+            _scenarioOptionTemplateService = scenarioOptionTemplateService;
             _realtime = realtime;
             _logger = logger;
         }
@@ -38,10 +41,77 @@ namespace SimuladorApi.Services
         {
             var scenario = await _context.Scenarios
                 .Include(s => s.PhaseSettings)
+                    .ThenInclude(phase => phase.Criteria)
                 .FirstOrDefaultAsync(s => s.Id == request.ScenarioId && s.IsPublished);
 
             if (scenario == null)
                 return (false, "Escenario publicado no encontrado.", 0);
+
+            if (request.CourseId.HasValue)
+            {
+                var isEnrolled = await _context.CourseEnrollments
+                    .AnyAsync(e => e.CourseId == request.CourseId.Value && e.StudentId == studentId);
+
+                if (!isEnrolled)
+                    return (false, "No estás inscrito en este curso.", 0);
+
+                var scenarioAssigned = await _context.CourseScenarios
+                    .AnyAsync(cs => cs.CourseId == request.CourseId.Value && cs.ScenarioId == request.ScenarioId);
+
+                if (!scenarioAssigned)
+                    return (false, "Este escenario no está asignado al curso.", 0);
+            }
+
+            var compatibility = await EnsureLegacyScenarioConfigurationAsync(scenario);
+
+            if (!compatibility.Success)
+                return (false, compatibility.Message, 0);
+
+            var enabledPhases = scenario.PhaseSettings
+                .Where(p => p.IsEnabled)
+                .OrderBy(p => p.PhaseOrder)
+                .ToList();
+
+            if (!enabledPhases.Any())
+                return (false, "El escenario no tiene fases configuradas.", 0);
+
+            var optionPhaseNames = await _context.ScenarioOptions
+                .Where(option => option.ScenarioId == scenario.Id)
+                .Select(option => option.PhaseName)
+                .ToListAsync();
+
+            var phasesWithoutOptions = enabledPhases
+                .Where(phase => !optionPhaseNames.Any(optionPhaseName =>
+                    NormalizePhaseName(optionPhaseName) == NormalizePhaseName(phase.PhaseName)))
+                .Select(phase => phase.PhaseName)
+                .ToList();
+
+            if (phasesWithoutOptions.Any())
+            {
+                return (
+                    false,
+                    $"El escenario no tiene opciones configuradas para: {string.Join(", ", phasesWithoutOptions)}.",
+                    0
+                );
+            }
+
+            var inProgressAttempt = await _context.SimulationAttempts
+                .Where(attempt =>
+                    attempt.ScenarioId == request.ScenarioId &&
+                    attempt.StudentId == studentId &&
+                    attempt.CourseId == request.CourseId &&
+                    attempt.Status == "InProgress")
+                .OrderByDescending(attempt => attempt.StartedAt)
+                .FirstOrDefaultAsync();
+
+            if (inProgressAttempt != null)
+            {
+                return (
+                    true,
+                    "Se reanudará la simulación que ya tenías en progreso.",
+                    inProgressAttempt.Id
+                );
+            }
 
             var now = DateTime.UtcNow;
 
@@ -73,31 +143,9 @@ namespace SimuladorApi.Services
                 return (false, $"Ya alcanzaste el máximo de intentos permitidos para este escenario ({maxAttempts}).", 0);
             }
 
-            if (request.CourseId.HasValue)
-            {
-                var isEnrolled = await _context.CourseEnrollments
-                    .AnyAsync(e => e.CourseId == request.CourseId.Value && e.StudentId == studentId);
-
-                if (!isEnrolled)
-                    return (false, "No estás inscrito en este curso.", 0);
-
-                var scenarioAssigned = await _context.CourseScenarios
-                    .AnyAsync(cs => cs.CourseId == request.CourseId.Value && cs.ScenarioId == request.ScenarioId);
-
-                if (!scenarioAssigned)
-                    return (false, "Este escenario no está asignado al curso.", 0);
-            }
-
             var initialKpis = _kpiSimulationService.GetDefaultInitialKpis(scenario.Methodology);
             var initialKpisJson = _kpiSimulationService.SerializeKpis(initialKpis);
-            var firstPhase = scenario.PhaseSettings
-            .Where(p => p.IsEnabled)
-            .OrderBy(p => p.PhaseOrder)
-            .Select(p => p.PhaseName)
-            .FirstOrDefault();
-
-            if (string.IsNullOrWhiteSpace(firstPhase))
-                return (false, "El escenario no tiene fases configuradas.", 0);
+            var firstPhase = enabledPhases[0].PhaseName;
 
             var attempt = new SimulationAttempt
             {
@@ -641,6 +689,158 @@ namespace SimuladorApi.Services
                     attemptId
                 );
             }
+        }
+
+        private async Task<(bool Success, string Message)> EnsureLegacyScenarioConfigurationAsync(
+            Scenario scenario)
+        {
+            if (scenario.PhaseSettings.Any(phase => phase.IsEnabled))
+                return (true, string.Empty);
+
+            var methodologyCode = NormalizeLegacyMethodologyCode(scenario.Methodology);
+            var methodology = await _context.Methodologies
+                .Include(item => item.Phases)
+                    .ThenInclude(phase => phase.Criteria)
+                .FirstOrDefaultAsync(item =>
+                    item.Code == methodologyCode &&
+                    item.IsActive);
+
+            if (methodology == null)
+            {
+                return (
+                    false,
+                    "El escenario histórico no tiene una metodología activa para recuperar sus fases."
+                );
+            }
+
+            var catalogPhases = methodology.Phases
+                .Where(phase => phase.IsActive)
+                .OrderBy(phase => phase.PhaseOrder)
+                .ToList();
+
+            if (!catalogPhases.Any())
+            {
+                return (
+                    false,
+                    "La metodología del escenario no tiene fases activas configuradas."
+                );
+            }
+
+            var restoredPhaseSettings = new List<ScenarioPhaseSetting>();
+
+            foreach (var catalogPhase in catalogPhases)
+            {
+                var existingPhase = scenario.PhaseSettings.FirstOrDefault(phase =>
+                    NormalizePhaseName(phase.PhaseName) ==
+                    NormalizePhaseName(catalogPhase.Name));
+
+                if (existingPhase != null)
+                {
+                    existingPhase.MethodologyPhaseId = catalogPhase.Id;
+                    existingPhase.CustomName = string.IsNullOrWhiteSpace(existingPhase.CustomName)
+                        ? catalogPhase.Name
+                        : existingPhase.CustomName;
+                    existingPhase.PhaseOrder = catalogPhase.PhaseOrder;
+                    existingPhase.PhaseWeight = existingPhase.PhaseWeight > 0
+                        ? existingPhase.PhaseWeight
+                        : catalogPhase.DefaultWeight;
+                    existingPhase.IsEnabled = true;
+
+                    foreach (var catalogCriteria in catalogPhase.Criteria
+                        .Where(criteria => criteria.IsActive))
+                    {
+                        var existingCriteria = existingPhase.Criteria.FirstOrDefault(criteria =>
+                            NormalizePhaseName(criteria.CriterionName) ==
+                            NormalizePhaseName(catalogCriteria.Name));
+
+                        if (existingCriteria != null)
+                        {
+                            existingCriteria.MethodologyPhaseCriteriaId = catalogCriteria.Id;
+                            existingCriteria.CriterionWeight = existingCriteria.CriterionWeight > 0
+                                ? existingCriteria.CriterionWeight
+                                : catalogCriteria.DefaultWeight;
+                            existingCriteria.EvaluationType = string.IsNullOrWhiteSpace(existingCriteria.EvaluationType)
+                                ? catalogCriteria.EvaluationType
+                                : existingCriteria.EvaluationType;
+                            continue;
+                        }
+
+                        existingPhase.Criteria.Add(new PhaseCriteriaSetting
+                        {
+                            MethodologyPhaseCriteriaId = catalogCriteria.Id,
+                            CriterionName = catalogCriteria.Name,
+                            CriterionWeight = catalogCriteria.DefaultWeight,
+                            EvaluationType = catalogCriteria.EvaluationType
+                        });
+                    }
+
+                    continue;
+                }
+
+                restoredPhaseSettings.Add(new ScenarioPhaseSetting
+                {
+                    ScenarioId = scenario.Id,
+                    MethodologyPhaseId = catalogPhase.Id,
+                    PhaseName = catalogPhase.Name,
+                    CustomName = catalogPhase.Name,
+                    PhaseOrder = catalogPhase.PhaseOrder,
+                    PhaseWeight = catalogPhase.DefaultWeight,
+                    IsEnabled = true,
+                    Criteria = catalogPhase.Criteria
+                        .Where(criteria => criteria.IsActive)
+                        .Select(criteria => new PhaseCriteriaSetting
+                        {
+                            MethodologyPhaseCriteriaId = criteria.Id,
+                            CriterionName = criteria.Name,
+                            CriterionWeight = criteria.DefaultWeight,
+                            EvaluationType = criteria.EvaluationType
+                        })
+                        .ToList()
+                });
+            }
+
+            var existingOptionPhaseNames = await _context.ScenarioOptions
+                .Where(option => option.ScenarioId == scenario.Id)
+                .Select(option => option.PhaseName)
+                .ToListAsync();
+
+            var restoredOptions = _scenarioOptionTemplateService
+                .GenerateBaseOptions(scenario.Id, methodology.Code)
+                .Where(option => catalogPhases.Any(phase =>
+                    NormalizePhaseName(phase.Name) == NormalizePhaseName(option.PhaseName)))
+                .Where(option => !existingOptionPhaseNames.Any(existingPhaseName =>
+                    NormalizePhaseName(existingPhaseName) == NormalizePhaseName(option.PhaseName)))
+                .ToList();
+
+            _context.ScenarioPhaseSettings.AddRange(restoredPhaseSettings);
+
+            if (restoredOptions.Any())
+                _context.ScenarioOptions.AddRange(restoredOptions);
+
+            scenario.Methodology = methodology.Code;
+            scenario.MethodologyId ??= methodology.Id;
+            scenario.UpdatedAt = DateTime.UtcNow;
+            scenario.PhaseSettings.AddRange(restoredPhaseSettings);
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Se actualizó la configuración metodológica del escenario histórico {ScenarioId}.",
+                scenario.Id
+            );
+
+            return (true, string.Empty);
+        }
+
+        private static string NormalizeLegacyMethodologyCode(string methodologyCode)
+        {
+            return methodologyCode?.Trim() switch
+            {
+                "BPM" or "Business Process Management" or "BusinessProcessManagement" or "business-process-management" => "BPM",
+                "DigitalMaturity" or "Madurez Digital" or "MadurezDigital" or "digital-maturity" => "DigitalMaturity",
+                "LeanStartup" or "Lean Startup" or "lean-startup" => "LeanStartup",
+                _ => "DesignThinking"
+            };
         }
 
         private static string GetMethodologyName(string methodologyCode)
