@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
@@ -27,10 +27,30 @@ function CreateDesignThinkingScenarioPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [creationMode, setCreationMode] = useState("manual");
+  const [phaseWeights, setPhaseWeights] = useState([]);
 
   const selectedMethodology = methodologies.find(
     (methodology) => methodology.code === form.methodologyCode
   );
+
+  const phaseWeightTotal = useMemo(() => {
+    return phaseWeights.reduce(
+      (sum, phase) => sum + Number(phase.phaseWeight || 0),
+      0
+    );
+  }, [phaseWeights]);
+
+  const phaseWeightBalance = 100 - phaseWeightTotal;
+
+  const isPhaseDistributionValid =
+    phaseWeights.length > 0 && phaseWeightTotal === 100;
+
+  const phaseWeightMessage =
+    phaseWeightTotal === 100
+      ? "Distribución válida: 100%"
+      : phaseWeightTotal < 100
+      ? `Falta distribuir ${phaseWeightBalance}%`
+      : `Has excedido el total por ${Math.abs(phaseWeightBalance)}%`;
 
   const loadMethodologies = async () => {
     try {
@@ -46,6 +66,23 @@ function CreateDesignThinkingScenarioPage() {
     loadMethodologies();
   }, []);
 
+  useEffect(() => {
+    if (!selectedMethodology?.phases?.length) {
+      setPhaseWeights([]);
+      return;
+    }
+
+    setPhaseWeights(
+      selectedMethodology.phases.map((phase) => ({
+        methodologyPhaseId: phase.id,
+        phaseName: phase.name,
+        phaseOrder: phase.phaseOrder,
+        phaseWeight: Number(phase.defaultWeight || 0),
+        isEnabled: true,
+      }))
+    );
+  }, [selectedMethodology]);
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
 
@@ -53,6 +90,35 @@ function CreateDesignThinkingScenarioPage() {
       ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
+  };
+
+  const handlePhaseWeightChange = (methodologyPhaseId, value) => {
+    const normalizedValue = Math.min(
+      100,
+      Math.max(0, Number(value || 0))
+    );
+
+    setPhaseWeights((prev) =>
+      prev.map((phase) =>
+        phase.methodologyPhaseId === methodologyPhaseId
+          ? { ...phase, phaseWeight: normalizedValue }
+          : phase
+      )
+    );
+  };
+
+  const resetRecommendedWeights = () => {
+    if (!selectedMethodology?.phases?.length) return;
+
+    setPhaseWeights(
+      selectedMethodology.phases.map((phase) => ({
+        methodologyPhaseId: phase.id,
+        phaseName: phase.name,
+        phaseOrder: phase.phaseOrder,
+        phaseWeight: Number(phase.defaultWeight || 0),
+        isEnabled: true,
+      }))
+    );
   };
 
   const generateScenarioWithAi = async () => {
@@ -118,6 +184,13 @@ function CreateDesignThinkingScenarioPage() {
       availableUntil: form.availableUntil
         ? new Date(form.availableUntil).toISOString()
         : null,
+      phaseSettings: phaseWeights.map((phase) => ({
+        methodologyPhaseId: phase.methodologyPhaseId,
+        phaseName: phase.phaseName,
+        phaseOrder: phase.phaseOrder,
+        phaseWeight: Number(phase.phaseWeight || 0),
+        isEnabled: true,
+      })),
     };
   };
 
@@ -125,6 +198,13 @@ function CreateDesignThinkingScenarioPage() {
     e.preventDefault();
 
     if (isSubmitting) return;
+
+    if (!isPhaseDistributionValid) {
+      setMessage(
+        `No se puede crear el escenario. ${phaseWeightMessage}.`
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     setMessage("");
@@ -383,7 +463,11 @@ function CreateDesignThinkingScenarioPage() {
               </div>
             </div>
 
-            <button className="primary-action" type="submit" disabled={isSubmitting}>
+            <button
+              className="primary-action"
+              type="submit"
+              disabled={isSubmitting || !isPhaseDistributionValid}
+            >
               {isSubmitting ? "Creando..." : "Crear escenario"}
             </button>
           </form>
@@ -398,22 +482,99 @@ function CreateDesignThinkingScenarioPage() {
           </p>
 
           {selectedMethodology && (
-            <div className="table-list">
-              {selectedMethodology.phases.map((phase) => (
-                <div key={phase.id} className="table-row-card">
-                  <div>
-                    <strong>
-                      {phase.phaseOrder}. {phase.name}
-                    </strong>
-                    <p>{phase.description}</p>
-                  </div>
+            <>
+              <div className="phase-weight-toolbar">
+                <button
+                  type="button"
+                  className="scenario-action-secondary"
+                  onClick={resetRecommendedWeights}
+                >
+                  Restablecer pesos recomendados
+                </button>
+              </div>
 
-                  <span className="status-pill">
-                    {phase.defaultWeight}%
-                  </span>
+              <div className="table-list">
+                {selectedMethodology.phases.map((phase) => {
+                  const configuredPhase = phaseWeights.find(
+                    (item) => item.methodologyPhaseId === phase.id
+                  );
+
+                  const phaseWeight = Number(
+                    configuredPhase?.phaseWeight ?? phase.defaultWeight ?? 0
+                  );
+
+                  return (
+                    <div key={phase.id} className="table-row-card phase-weight-row">
+                      <div>
+                        <div className="phase-weight-title">
+                          <strong>
+                            {phase.phaseOrder}. {phase.name}
+                          </strong>
+
+                          <span className="status-pill">
+                            {phaseWeight}%
+                          </span>
+                        </div>
+
+                        <p>{phase.description}</p>
+
+                        <div className="phase-weight-control">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={phaseWeight}
+                            onChange={(event) =>
+                              handlePhaseWeightChange(
+                                phase.id,
+                                event.target.value
+                              )
+                            }
+                          />
+
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={phaseWeight}
+                            onChange={(event) =>
+                              handlePhaseWeightChange(
+                                phase.id,
+                                event.target.value
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div
+                className={
+                  isPhaseDistributionValid
+                    ? "phase-weight-summary valid"
+                    : "phase-weight-summary invalid"
+                }
+              >
+                <div>
+                  <span>Total asignado</span>
+                  <strong>{phaseWeightTotal}%</strong>
                 </div>
-              ))}
-            </div>
+
+                <div>
+                  <span>Por distribuir</span>
+                  <strong>
+                    {phaseWeightBalance > 0 ? phaseWeightBalance : 0}%
+                  </strong>
+                </div>
+
+                <p>{phaseWeightMessage}</p>
+              </div>
+            </>
           )}
 
           <div className="methodology-helper-box">

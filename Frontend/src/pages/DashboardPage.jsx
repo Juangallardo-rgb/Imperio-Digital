@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api/api";
+import AppIcon from "../components/AppIcon";
 import { getToken, getUserFromToken } from "../utils/auth";
 import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 
@@ -552,9 +553,21 @@ function StudentDashboard({ user, history }) {
 }
 
 function PowerStatCard({ label, value, detail, variant }) {
+  const iconByVariant = {
+    blue: "dashboard",
+    green: "courses",
+    orange: "scenarios",
+    purple: "history",
+  };
+
   return (
     <div className={`power-stat-card ${variant}`}>
-      <span>{label}</span>
+      <div className="power-stat-card-top">
+        <span>{label}</span>
+        <span className={`power-stat-icon ${variant}`} aria-hidden="true">
+          <AppIcon name={iconByVariant[variant] || "dashboard"} />
+        </span>
+      </div>
       <strong>{value}</strong>
       <p>{detail}</p>
     </div>

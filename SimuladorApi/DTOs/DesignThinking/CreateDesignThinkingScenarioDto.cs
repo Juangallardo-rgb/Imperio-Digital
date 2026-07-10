@@ -25,5 +25,20 @@
         public int MaxAttemptsPerStudent { get; set; } = 1;
 
         public bool AllowLateAttempts { get; set; } = false;
+
+        public List<CreateScenarioPhaseSettingDto> PhaseSettings { get; set; } = new();
+    }
+
+    public class CreateScenarioPhaseSettingDto
+    {
+        public int? MethodologyPhaseId { get; set; }
+
+        public string PhaseName { get; set; } = string.Empty;
+
+        public int PhaseOrder { get; set; }
+
+        public decimal PhaseWeight { get; set; }
+
+        public bool IsEnabled { get; set; } = true;
     }
 }

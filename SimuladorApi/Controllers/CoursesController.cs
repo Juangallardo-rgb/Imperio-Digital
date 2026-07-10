@@ -122,6 +122,54 @@ namespace SimuladorApi.Controllers
         }
 
         [Authorize(Roles = "Estudiante")]
+        [HttpPost("join-by-code")]
+        public async Task<IActionResult> JoinByCode(JoinCourseByCodeDto request)
+        {
+            var studentId = GetUserId();
+
+            var result = await _courseService.JoinByCodeAsync(studentId, request);
+
+            if (!result.Success)
+                return BadRequest(result.Message);
+
+            return Ok(result.Message);
+        }
+
+        [Authorize(Roles = "Docente")]
+        [HttpPost("{courseId}/students/import")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> ImportStudents(int courseId, IFormFile file)
+        {
+            var teacherId = GetUserId();
+
+            try
+            {
+                var result = await _courseService.ImportStudentsAsync(
+                    courseId,
+                    teacherId,
+                    file
+                );
+
+                if (!result.Success)
+                {
+                    if (result.Message == "Curso no encontrado.")
+                        return NotFound(result.Message);
+
+                    return BadRequest(result.Message);
+                }
+
+                return Ok(result.Result);
+            }
+            catch
+            {
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "No se pudo completar la importación. Intenta nuevamente."
+                );
+            }
+        }
+
+        [Authorize(Roles = "Estudiante")]
         [HttpGet("{courseId}/student-detail")]
         public async Task<IActionResult> GetStudentCourseDetail(int courseId)
         {

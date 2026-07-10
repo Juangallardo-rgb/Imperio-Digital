@@ -90,7 +90,8 @@ function DesignThinkingResultsPage() {
   }
 
   const finalScoreRounded = roundScore(results.finalScore);
-  const methodologyName = inferMethodologyFromPhases(results.phaseScores);
+  const methodologyName =
+    results.methodologyName || inferMethodologyFromPhases(results.phaseScores);
   const statusLabel = translateStatus(results.status);
   const finalTraffic = getTrafficLight(finalScoreRounded);
 
@@ -326,6 +327,154 @@ function DesignThinkingResultsPage() {
                     ></div>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="results-card-pro">
+        <div className="results-section-header">
+          <div>
+            <span className="eyebrow">Revisión académica</span>
+            <h2>Qué respondiste bien y qué debes corregir</h2>
+          </div>
+        </div>
+
+        {!results.phaseReviews?.length ? (
+          <div className="results-empty-state">
+            No hay información de respuestas disponible para este intento.
+          </div>
+        ) : (
+          <div className="answer-review-list">
+            {results.phaseReviews.map((phase) => {
+              const selectedOptions = (phase.options || []).filter(
+                (option) => option.wasSelected
+              );
+
+              const missedCorrectOptions = (phase.options || []).filter(
+                (option) => option.isCorrect && !option.wasSelected
+              );
+
+              return (
+                <article
+                  key={phase.phaseName}
+                  className="answer-review-phase"
+                >
+                  <div className="answer-review-phase-header">
+                    <div>
+                      <span className="answer-review-kicker">Fase</span>
+                      <h3>{phase.phaseName}</h3>
+                    </div>
+
+                    <div className="answer-review-selection-score">
+                      <span>Selección</span>
+                      <strong>{roundScore(phase.selectionScore)}/100</strong>
+                    </div>
+                  </div>
+
+                  <div className="answer-review-grid">
+                    <div className="answer-review-column">
+                      <h4>Tus selecciones</h4>
+
+                      {selectedOptions.length === 0 ? (
+                        <p className="answer-review-empty">
+                          No se registraron opciones seleccionadas.
+                        </p>
+                      ) : (
+                        <div className="answer-option-list">
+                          {selectedOptions.map((option) => (
+                            <div
+                              key={option.optionId}
+                              className={`answer-option-card ${
+                                option.isCorrect
+                                  ? "answer-option-correct"
+                                  : "answer-option-incorrect"
+                              }`}
+                            >
+                              <div className="answer-option-icon">
+                                {option.isCorrect ? "✓" : "✕"}
+                              </div>
+
+                              <div>
+                                <strong>{option.text}</strong>
+                                <span>
+                                  {option.isCorrect
+                                    ? "Respuesta correcta seleccionada"
+                                    : "Respuesta incorrecta seleccionada"}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="answer-review-column">
+                      <h4>Respuestas correctas que faltaron</h4>
+
+                      {missedCorrectOptions.length === 0 ? (
+                        <div className="answer-review-success">
+                          <strong>No omitiste respuestas correctas.</strong>
+                          <p>
+                            Todas las opciones correctas disponibles fueron
+                            seleccionadas.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="answer-option-list">
+                          {missedCorrectOptions.map((option) => (
+                            <div
+                              key={option.optionId}
+                              className="answer-option-card answer-option-missed"
+                            >
+                              <div className="answer-option-icon">!</div>
+
+                              <div>
+                                <strong>{option.text}</strong>
+                                <span>
+                                  Era correcta, pero no fue seleccionada
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {phase.selectionFeedback && (
+                    <div className="answer-review-feedback">
+                      <strong>Evaluación de la selección</strong>
+                      <p>{phase.selectionFeedback}</p>
+                    </div>
+                  )}
+
+                  <div className="answer-review-written">
+                    <div className="answer-review-written-header">
+                      <h4>Justificación estratégica</h4>
+                      <span>
+                        {roundScore(phase.textAnswerScore)}/100
+                      </span>
+                    </div>
+
+                    <div className="answer-review-written-response">
+                      <strong>Tu respuesta</strong>
+                      <p>
+                        {phase.textAnswer?.trim()
+                          ? phase.textAnswer
+                          : "No se registró una justificación escrita."}
+                      </p>
+                    </div>
+
+                    {phase.textAnswerFeedback && (
+                      <div className="answer-review-written-feedback">
+                        <strong>Retroalimentación</strong>
+                        <p>{phase.textAnswerFeedback}</p>
+                      </div>
+                    )}
+                  </div>
+                </article>
               );
             })}
           </div>

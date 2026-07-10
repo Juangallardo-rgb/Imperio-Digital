@@ -18,6 +18,8 @@
 
         public List<PhaseScoreDto> PhaseScores { get; set; } = new();
 
+        public List<PhaseAnswerReviewDto> PhaseReviews { get; set; } = new();
+
         public List<KpiResultDto> KpiResults { get; set; } = new();
     }
 
@@ -28,6 +30,38 @@
         public decimal Score { get; set; }
 
         public string Feedback { get; set; } = string.Empty;
+    }
+
+    public class PhaseAnswerReviewDto
+    {
+        public string PhaseName { get; set; } = string.Empty;
+
+        public decimal SelectionScore { get; set; }
+
+        public string SelectionFeedback { get; set; } = string.Empty;
+
+        public string TextAnswer { get; set; } = string.Empty;
+
+        public decimal TextAnswerScore { get; set; }
+
+        public string TextAnswerFeedback { get; set; } = string.Empty;
+
+        public List<OptionAnswerReviewDto> Options { get; set; } = new();
+    }
+
+    public class OptionAnswerReviewDto
+    {
+        public int OptionId { get; set; }
+
+        public string OptionType { get; set; } = string.Empty;
+
+        public string Text { get; set; } = string.Empty;
+
+        public decimal Score { get; set; }
+
+        public bool WasSelected { get; set; }
+
+        public bool IsCorrect { get; set; }
     }
 
     public class KpiResultDto

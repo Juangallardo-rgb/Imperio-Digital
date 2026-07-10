@@ -1,27 +1,25 @@
 import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../api/api";
-import { getToken, saveToken } from "../utils/auth";
+import AppIcon from "../components/AppIcon";
 import logo from "../assets/imperio-logo.png";
+import { getToken, saveToken } from "../utils/auth";
 
 function LoginPage() {
   const [email, setEmail] = useState("docente@test.com");
   const [password, setPassword] = useState("123456");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = getToken();
-
-    if (token) {
+    if (getToken()) {
       navigate("/dashboard", { replace: true });
     }
   }, [navigate]);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const handleLogin = async (event) => {
+    event.preventDefault();
 
     if (isLoading) return;
 
@@ -29,11 +27,7 @@ function LoginPage() {
     setMessage("");
 
     try {
-      const response = await api.post("/Auth/login", {
-        email,
-        password,
-      });
-
+      const response = await api.post("/Auth/login", { email, password });
       const token = response.data?.token;
 
       if (!token) {
@@ -42,14 +36,15 @@ function LoginPage() {
 
       saveToken(token);
 
+      if (response.data?.mustChangePassword) {
+        navigate("/change-temporary-password", { replace: true });
+        return;
+      }
+
       navigate("/dashboard", { replace: true });
     } catch (error) {
       if (error.response) {
-        setMessage(
-          `Error ${error.response.status}: ${JSON.stringify(
-            error.response.data
-          )}`
-        );
+        setMessage(`Error ${error.response.status}: ${JSON.stringify(error.response.data)}`);
       } else if (error.request) {
         setMessage("No hubo respuesta del backend.");
       } else {
@@ -61,124 +56,79 @@ function LoginPage() {
   };
 
   return (
-    <main className="capstone-login-page">
-      <header className="capstone-login-header">
-        <div className="capstone-brand">
+    <main className="login-page">
+      <section className="login-intro" aria-labelledby="login-intro-title">
+        <div className="login-brand">
           <img src={logo} alt="Imperio Digital" />
-
           <div>
             <strong>Imperio Digital</strong>
-            <span>Simulador de Transformación Digital</span>
+            <span>Transformación empresarial</span>
           </div>
         </div>
 
-        <div className="capstone-header-badge">
-          Universidad de las Américas · Negocios Digitales
-        </div>
-      </header>
-
-      <section className="capstone-login-shell">
-        <div className="capstone-login-copy">
-          <span className="capstone-tag">
-            Simulación académica aplicada
-          </span>
-
-          <h1>
-            Entrena decisiones de transformación digital en escenarios de
-            negocio.
-          </h1>
-
+        <div className="login-intro-content">
+          <span className="login-kicker">Simulación académica</span>
+          <h1 id="login-intro-title">Experimenta la transformación digital</h1>
           <p>
-            Plataforma educativa para que estudiantes de Negocios Digitales
-            analicen casos, apliquen metodologías empresariales y reciban
-            resultados basados en indicadores, desempeño y retroalimentación.
+            Toma decisiones estratégicas y observa su impacto en tiempo real.
+            Aprende con escenarios, indicadores y retroalimentación aplicada.
           </p>
 
-          <div className="capstone-method-grid">
-            <div>
-              <b>01</b>
-              <span>Design Thinking</span>
-            </div>
-
-            <div>
-              <b>02</b>
-              <span>BPM</span>
-            </div>
-
-            <div>
-              <b>03</b>
-              <span>Madurez Digital</span>
-            </div>
-
-            <div>
-              <b>04</b>
-              <span>Lean Startup</span>
-            </div>
+          <div className="login-feature-list" aria-label="Características de la plataforma">
+            <span><AppIcon name="courses" size={18} /> Aprendizaje práctico</span>
+            <span><AppIcon name="scenarios" size={18} /> Casos reales</span>
           </div>
         </div>
 
-        <div className="capstone-access-panel">
-          <div className="capstone-login-card">
-            <div className="capstone-card-title">
-              <span>Acceso seguro</span>
-              <h2>Iniciar sesión</h2>
+        <p className="login-intro-footer">Imperio Digital · Plataforma educativa</p>
+      </section>
 
-              <p>
-                Ingresa para continuar con escenarios, cursos, simulaciones y
-                resultados.
-              </p>
-            </div>
-
-            <form onSubmit={handleLogin}>
-              <div className="capstone-field">
-                <label htmlFor="login-email">Correo</label>
-
-                <input
-                  id="login-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="correo@udla.edu.ec"
-                  autoComplete="email"
-                  required
-                />
-              </div>
-
-              <div className="capstone-field">
-                <label htmlFor="login-password">Contraseña</label>
-
-                <input
-                  id="login-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Ingresa tu contraseña"
-                  autoComplete="current-password"
-                  required
-                />
-              </div>
-
-              <button
-                className="capstone-login-action"
-                type="submit"
-                disabled={isLoading}
-              >
-                {isLoading ? "Verificando..." : "Acceder"}
-              </button>
-            </form>
-
-            <div className="capstone-login-links">
-              <Link to="/forgot-password">
-                Recuperar contraseña
-              </Link>
-            </div>
-
-            {message && (
-              <div className="capstone-error">
-                {message}
-              </div>
-            )}
+      <section className="login-access" aria-labelledby="login-title">
+        <div className="login-form-card">
+          <div className="login-form-heading">
+            <span className="login-kicker">Acceso seguro</span>
+            <h2 id="login-title">Bienvenido de nuevo</h2>
+            <p>Ingresa tus credenciales para acceder al sistema.</p>
           </div>
+
+          <form onSubmit={handleLogin}>
+            <div className="login-field">
+              <label htmlFor="login-email">Correo electrónico</label>
+              <input
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="correo@universidad.edu"
+                autoComplete="email"
+                required
+              />
+            </div>
+
+            <div className="login-field">
+              <label htmlFor="login-password">Contraseña</label>
+              <input
+                id="login-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Ingresa tu contraseña"
+                autoComplete="current-password"
+                required
+              />
+            </div>
+
+            <button className="login-submit" type="submit" disabled={isLoading}>
+              {isLoading ? "Verificando..." : "Iniciar sesión"}
+              {!isLoading && <AppIcon name="chevron" size={18} />}
+            </button>
+          </form>
+
+          <div className="login-form-links">
+            <Link to="/forgot-password">¿Problemas para acceder? Contacta soporte</Link>
+          </div>
+
+          {message && <div className="login-error" role="alert">{message}</div>}
         </div>
       </section>
     </main>

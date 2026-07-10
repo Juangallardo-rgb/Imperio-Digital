@@ -18,6 +18,8 @@ function AvailableCoursesPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [enrollingId, setEnrollingId] = useState(null);
+  const [courseCode, setCourseCode] = useState("");
+  const [joiningByCode, setJoiningByCode] = useState(false);
 
   const loadCourses = useCallback(
     async (showLoader = false) => {
@@ -120,6 +122,58 @@ function AvailableCoursesPage() {
     }
   };
 
+  const joinByCode = async (event) => {
+    event.preventDefault();
+
+    if (joiningByCode) return;
+
+    const normalizedCode = courseCode.trim().toUpperCase();
+
+    if (!normalizedCode) {
+      setMessage("Ingresa un código de curso.");
+      return;
+    }
+
+    setJoiningByCode(true);
+    setMessage("");
+
+    try {
+      const token = getToken();
+
+      const response = await api.post(
+        "/courses/join-by-code",
+        {
+          code: normalizedCode,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setMessage(
+        typeof response.data === "string"
+          ? response.data
+          : response.data?.message ||
+              "Inscripción realizada correctamente."
+      );
+
+      setCourseCode("");
+      await loadCourses(false);
+    } catch (error) {
+      setMessage(
+        error.response
+          ? typeof error.response.data === "string"
+            ? error.response.data
+            : JSON.stringify(error.response.data)
+          : "No se pudo realizar la inscripción."
+      );
+    } finally {
+      setJoiningByCode(false);
+    }
+  };
+
   useEffect(() => {
     void loadCourses(true);
   }, [loadCourses]);
@@ -146,6 +200,46 @@ function AvailableCoursesPage() {
           {message}
         </div>
       )}
+
+      <div className="pro-card join-code-card">
+        <div className="section-header">
+          <div>
+            <span className="eyebrow">
+              Matrícula directa
+            </span>
+
+            <h2>Unirme con código de curso</h2>
+          </div>
+        </div>
+
+        <form
+          className="join-code-form"
+          onSubmit={joinByCode}
+        >
+          <div className="form-group">
+            <label>Código de curso</label>
+            <input
+              value={courseCode}
+              onChange={(event) =>
+                setCourseCode(
+                  event.target.value.toUpperCase()
+                )
+              }
+              placeholder="IMP-XXXXXX"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="primary-action"
+            disabled={joiningByCode}
+          >
+            {joiningByCode
+              ? "Inscribiendo..."
+              : "Unirme al curso"}
+          </button>
+        </form>
+      </div>
 
       {loading ? (
         <div className="pro-card">

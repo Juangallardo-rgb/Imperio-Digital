@@ -33,7 +33,12 @@ namespace SimuladorApi.Services
                 .FirstOrDefaultAsync(m => m.Code == methodologyCode && m.IsActive);
 
             if (methodology == null)
-                throw new Exception($"La metodología '{methodologyCode}' no existe o no está activa.");
+                throw new ArgumentException($"La metodología '{methodologyCode}' no existe o no está activa.");
+
+            var phaseSettingsByPhaseId = ValidateCreatePhaseSettings(
+                request.PhaseSettings,
+                methodology
+            );
 
             var scenario = new Scenario
             {
@@ -56,16 +61,32 @@ namespace SimuladorApi.Services
                 CreatedAt = DateTime.UtcNow
             };
 
-            _context.Scenarios.Add(scenario);
-            await _context.SaveChangesAsync();
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-            await AddPhaseSettingsFromMethodologyAsync(scenario.Id, methodology.Id);
-            await _context.SaveChangesAsync();
+            try
+            {
+                _context.Scenarios.Add(scenario);
+                await _context.SaveChangesAsync();
 
-            await AddScenarioOptionsAsync(scenario.Id, methodology.Code);
+                AddPhaseSettingsFromMethodology(
+                    scenario.Id,
+                    methodology,
+                    phaseSettingsByPhaseId
+                );
+                await _context.SaveChangesAsync();
 
-            scenario.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+                await AddScenarioOptionsAsync(scenario.Id, methodology.Code);
+
+                scenario.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
 
             return await GetScenarioDetailAsync(scenario.Id, teacherId, true)
                    ?? throw new Exception("No se pudo recuperar el escenario creado.");
@@ -632,13 +653,84 @@ namespace SimuladorApi.Services
             };
         }
 
-        private async Task AddPhaseSettingsFromMethodologyAsync(int scenarioId, int methodologyId)
+        private static Dictionary<int, CreateScenarioPhaseSettingDto> ValidateCreatePhaseSettings(
+            List<CreateScenarioPhaseSettingDto> requestedPhaseSettings,
+            Methodology methodology)
         {
-            var phases = await _context.MethodologyPhases
-                .Include(p => p.Criteria)
-                .Where(p => p.MethodologyId == methodologyId && p.IsActive)
+            var activePhases = methodology.Phases
+                .Where(p => p.IsActive)
                 .OrderBy(p => p.PhaseOrder)
-                .ToListAsync();
+                .ToList();
+
+            if (!activePhases.Any())
+                throw new ArgumentException("La metodología seleccionada no tiene fases activas.");
+
+            if (requestedPhaseSettings == null || requestedPhaseSettings.Count == 0)
+                throw new ArgumentException("Debe enviar la configuración de pesos de las fases.");
+
+            var phaseSettingsByPhaseId = new Dictionary<int, CreateScenarioPhaseSettingDto>();
+
+            foreach (var requestedPhase in requestedPhaseSettings)
+            {
+                if (requestedPhase.PhaseWeight < 0 || requestedPhase.PhaseWeight > 100)
+                    throw new ArgumentException("Los pesos de las fases deben estar entre 0 y 100.");
+
+                if (!requestedPhase.IsEnabled)
+                    throw new ArgumentException("Todas las fases de la metodología seleccionada deben estar habilitadas al crear el escenario.");
+
+                MethodologyPhase? catalogPhase = null;
+
+                if (requestedPhase.MethodologyPhaseId.HasValue)
+                {
+                    catalogPhase = activePhases.FirstOrDefault(p =>
+                        p.Id == requestedPhase.MethodologyPhaseId.Value);
+                }
+
+                if (catalogPhase == null && !string.IsNullOrWhiteSpace(requestedPhase.PhaseName))
+                {
+                    catalogPhase = activePhases.FirstOrDefault(p =>
+                        NormalizeText(p.Name) == NormalizeText(requestedPhase.PhaseName));
+                }
+
+                if (catalogPhase == null)
+                    throw new ArgumentException("La fase enviada no pertenece a la metodología seleccionada.");
+
+                if (requestedPhase.PhaseOrder > 0 &&
+                    requestedPhase.PhaseOrder != catalogPhase.PhaseOrder)
+                {
+                    throw new ArgumentException("El orden de fase enviado no corresponde a la metodología seleccionada.");
+                }
+
+                if (phaseSettingsByPhaseId.ContainsKey(catalogPhase.Id))
+                    throw new ArgumentException("No se permiten fases duplicadas en la configuración de pesos.");
+
+                phaseSettingsByPhaseId[catalogPhase.Id] = requestedPhase;
+            }
+
+            if (phaseSettingsByPhaseId.Count != activePhases.Count)
+                throw new ArgumentException("Debe enviar todas las fases de la metodología seleccionada.");
+
+            var totalWeight = phaseSettingsByPhaseId.Values.Sum(p => p.PhaseWeight);
+
+            if (totalWeight != 100)
+            {
+                throw new ArgumentException(
+                    $"La suma de los pesos de las fases debe ser exactamente 100%. Total recibido: {totalWeight}%."
+                );
+            }
+
+            return phaseSettingsByPhaseId;
+        }
+
+        private void AddPhaseSettingsFromMethodology(
+            int scenarioId,
+            Methodology methodology,
+            Dictionary<int, CreateScenarioPhaseSettingDto> requestedPhaseSettings)
+        {
+            var phases = methodology.Phases
+                .Where(p => p.IsActive)
+                .OrderBy(p => p.PhaseOrder)
+                .ToList();
 
             var scenarioPhases = phases.Select(phase => new ScenarioPhaseSetting
             {
@@ -647,8 +739,8 @@ namespace SimuladorApi.Services
                 PhaseName = phase.Name,
                 CustomName = phase.Name,
                 PhaseOrder = phase.PhaseOrder,
-                PhaseWeight = phase.DefaultWeight,
-                IsEnabled = true,
+                PhaseWeight = requestedPhaseSettings[phase.Id].PhaseWeight,
+                IsEnabled = requestedPhaseSettings[phase.Id].IsEnabled,
                 Criteria = phase.Criteria
                     .Where(c => c.IsActive)
                     .Select(c => new PhaseCriteriaSetting

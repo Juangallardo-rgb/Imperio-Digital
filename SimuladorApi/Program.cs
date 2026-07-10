@@ -203,6 +203,39 @@ app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
+
+app.Use(async (context, next) =>
+{
+    var mustChangePassword =
+        context.User.Identity?.IsAuthenticated == true &&
+        string.Equals(
+            context.User.FindFirst("mustChangePassword")?.Value,
+            "true",
+            StringComparison.OrdinalIgnoreCase
+        );
+
+    if (mustChangePassword)
+    {
+        var path = context.Request.Path;
+        var isAllowedAuthPath =
+            path.StartsWithSegments("/api/Auth/change-temporary-password") ||
+            path.StartsWithSegments("/api/Auth/login") ||
+            path.StartsWithSegments("/api/Auth/forgot-password") ||
+            path.StartsWithSegments("/api/Auth/reset-password");
+
+        if (!isAllowedAuthPath)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsync(
+                "Debes cambiar tu contraseña temporal antes de continuar."
+            );
+            return;
+        }
+    }
+
+    await next();
+});
+
 app.UseAuthorization();
 
 app.MapControllers();

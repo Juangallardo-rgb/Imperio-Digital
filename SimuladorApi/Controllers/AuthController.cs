@@ -3,6 +3,8 @@ using SimuladorApi.DTOs;
 using SimuladorApi.Models;
 using SimuladorApi.Data;
 using SimuladorApi.Services;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace SimuladorApi.Controllers
 {
@@ -37,7 +39,8 @@ namespace SimuladorApi.Controllers
                 Name = request.Name,
                 Email = request.Email,
                 PasswordHash = passwordHash,
-                Role = request.Role
+                Role = request.Role,
+                MustChangePassword = false
             };
 
             _context.Users.Add(user);
@@ -59,10 +62,55 @@ namespace SimuladorApi.Controllers
 
             var token = _tokenService.CreateToken(user);
 
-            return Ok(new
+            return Ok(new LoginResponseDto
             {
-                message = "Login exitoso",
-                token = token
+                Message = "Login exitoso",
+                Token = token,
+                MustChangePassword = user.MustChangePassword
+            });
+        }
+
+        [Authorize]
+        [HttpPost("change-temporary-password")]
+        public IActionResult ChangeTemporaryPassword(ChangeTemporaryPasswordDto request)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+
+            if (user == null)
+                return NotFound("Usuario no encontrado.");
+
+            if (!user.MustChangePassword)
+                return BadRequest("No tienes un cambio de contraseña pendiente.");
+
+            if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+                return BadRequest("La contraseña temporal no es correcta.");
+
+            if (string.IsNullOrWhiteSpace(request.NewPassword) ||
+                request.NewPassword.Length < 6)
+            {
+                return BadRequest("La nueva contraseña debe tener al menos 6 caracteres.");
+            }
+
+            if (request.NewPassword != request.ConfirmNewPassword)
+                return BadRequest("La confirmación de contraseña no coincide.");
+
+            if (request.CurrentPassword == request.NewPassword)
+                return BadRequest("La nueva contraseña no puede ser igual a la temporal.");
+
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+            user.MustChangePassword = false;
+
+            _context.SaveChanges();
+
+            var token = _tokenService.CreateToken(user);
+
+            return Ok(new LoginResponseDto
+            {
+                Message = "Contraseña actualizada correctamente.",
+                Token = token,
+                MustChangePassword = false
             });
         }
 

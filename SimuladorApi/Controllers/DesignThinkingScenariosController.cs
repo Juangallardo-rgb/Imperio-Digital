@@ -23,9 +23,16 @@ namespace SimuladorApi.Controllers
         {
             var teacherId = GetUserId();
 
-            var result = await _scenarioService.CreateDesignThinkingScenarioAsync(request, teacherId);
+            try
+            {
+                var result = await _scenarioService.CreateDesignThinkingScenarioAsync(request, teacherId);
 
-            return Ok(result);
+                return Ok(result);
+            }
+            catch (ArgumentException exception)
+            {
+                return BadRequest(exception.Message);
+            }
         }
 
         [Authorize(Roles = "Docente")]

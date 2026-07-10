@@ -3,11 +3,18 @@ using SimuladorApi.Data;
 using SimuladorApi.DTOs.Courses;
 using SimuladorApi.Models;
 using SimuladorApi.DTOs.DesignThinking;
+using Microsoft.AspNetCore.Http;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace SimuladorApi.Services
 {
     public class CourseService
     {
+        private const int MaxImportRows = 200;
+        private const long MaxCsvFileBytes = 512 * 1024;
+
         private readonly AppDbContext _context;
         private readonly IRealtimeNotificationService _realtime;
 
@@ -25,7 +32,7 @@ namespace SimuladorApi.Services
             {
                 Name = request.Name,
                 Description = request.Description,
-                Code = GenerateCourseCode(),
+                Code = await GenerateUniqueCourseCodeAsync(),
                 TeacherId = teacherId,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
@@ -178,6 +185,178 @@ namespace SimuladorApi.Services
             return (true, "Inscripción realizada correctamente.");
         }
 
+        public async Task<(bool Success, string Message)> JoinByCodeAsync(
+            int studentId,
+            JoinCourseByCodeDto request)
+        {
+            var code = NormalizeCourseCode(request.Code);
+
+            if (string.IsNullOrWhiteSpace(code))
+                return (false, "El código de curso no es válido.");
+
+            var course = await _context.Courses
+                .FirstOrDefaultAsync(c => c.Code == code);
+
+            if (course == null)
+                return (false, "El código de curso no es válido.");
+
+            if (!course.IsActive)
+                return (false, "El curso no está disponible.");
+
+            return await EnrollAsync(course.Id, studentId);
+        }
+
+        public async Task<(bool Success, string Message, ImportStudentsResultDto? Result)> ImportStudentsAsync(
+            int courseId,
+            int teacherId,
+            IFormFile? file)
+        {
+            var course = await _context.Courses
+                .FirstOrDefaultAsync(c => c.Id == courseId && c.TeacherId == teacherId);
+
+            if (course == null)
+                return (false, "Curso no encontrado.", null);
+
+            var fileValidation = ValidateCsvFile(file);
+
+            if (!fileValidation.Success)
+                return (false, fileValidation.Message, null);
+
+            string csvContent;
+
+            using (var reader = new StreamReader(
+                file!.OpenReadStream(),
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: true))
+            {
+                csvContent = await reader.ReadToEndAsync();
+            }
+
+            var parseResult = ParseStudentCsv(csvContent);
+
+            if (!parseResult.Success)
+                return (false, parseResult.Message, null);
+
+            var validRows = parseResult.ValidRows;
+            var result = parseResult.Result;
+
+            if (!validRows.Any())
+            {
+                result.FailedRows = result.Errors.Count;
+                return (true, "No se encontraron filas válidas para importar.", result);
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                var emails = validRows.Select(r => r.Email).ToList();
+
+                var existingUsers = await _context.Users
+                    .Where(u => emails.Contains(u.Email.ToLower()))
+                    .ToDictionaryAsync(u => u.Email.ToLower(), u => u);
+
+                var enrolledStudentIds = (await _context.CourseEnrollments
+                    .Where(e => e.CourseId == courseId)
+                    .Select(e => e.StudentId)
+                    .ToListAsync())
+                    .ToHashSet();
+
+                foreach (var row in validRows)
+                {
+                    if (existingUsers.TryGetValue(row.Email, out var existingUser))
+                    {
+                        if (existingUser.Role != "Estudiante")
+                        {
+                            result.Errors.Add(new ImportStudentErrorDto
+                            {
+                                RowNumber = row.RowNumber,
+                                Name = row.Name,
+                                Email = row.Email,
+                                Message = "El correo pertenece a una cuenta docente."
+                            });
+                            continue;
+                        }
+
+                        if (enrolledStudentIds.Contains(existingUser.Id))
+                        {
+                            result.AlreadyEnrolled++;
+                            continue;
+                        }
+
+                        _context.CourseEnrollments.Add(new CourseEnrollment
+                        {
+                            CourseId = courseId,
+                            StudentId = existingUser.Id,
+                            EnrolledAt = DateTime.UtcNow
+                        });
+
+                        enrolledStudentIds.Add(existingUser.Id);
+                        result.ExistingStudentsEnrolled++;
+                        continue;
+                    }
+
+                    var temporaryPassword = GenerateTemporaryPassword();
+
+                    var newUser = new User
+                    {
+                        Name = row.Name,
+                        Email = row.Email,
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(temporaryPassword),
+                        Role = "Estudiante",
+                        MustChangePassword = true
+                    };
+
+                    _context.Users.Add(newUser);
+                    await _context.SaveChangesAsync();
+
+                    _context.CourseEnrollments.Add(new CourseEnrollment
+                    {
+                        CourseId = courseId,
+                        StudentId = newUser.Id,
+                        EnrolledAt = DateTime.UtcNow
+                    });
+
+                    existingUsers[row.Email] = newUser;
+                    enrolledStudentIds.Add(newUser.Id);
+                    result.NewUsersCreated++;
+
+                    result.Credentials.Add(new TemporaryCredentialDto
+                    {
+                        Name = newUser.Name,
+                        Email = newUser.Email,
+                        TemporaryPassword = temporaryPassword,
+                        CourseCode = course.Code
+                    });
+                }
+
+                result.FailedRows = result.Errors.Count;
+                result.ValidRows =
+                    result.NewUsersCreated +
+                    result.ExistingStudentsEnrolled +
+                    result.AlreadyEnrolled;
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            try
+            {
+                await _realtime.NotifyEnrollmentsChangedAsync(courseId, 0);
+            }
+            catch
+            {
+                // La importación ya fue guardada; una falla de SignalR no debe revertirla.
+            }
+
+            return (true, "Importación completada.", result);
+        }
+
         public async Task<(bool Success, string Message)> AssignScenarioToCourseAsync(
             int courseId,
             int scenarioId,
@@ -209,6 +388,10 @@ namespace SimuladorApi.Services
             });
 
             await _context.SaveChangesAsync();
+            await _realtime.NotifyCourseScenariosChangedAsync(
+                courseId,
+                scenarioId
+            );
 
             return (true, "Escenario asignado correctamente.");
         }
@@ -498,6 +681,7 @@ namespace SimuladorApi.Services
 
             var attempt = await _context.SimulationAttempts
                 .Include(a => a.Scenario)
+                    .ThenInclude(s => s!.PhaseSettings)
                 .Include(a => a.PhaseResponses)
                 .Include(a => a.KpiResults)
                 .FirstOrDefaultAsync(a => a.Id == attemptId && a.CourseId == courseId);
@@ -505,24 +689,27 @@ namespace SimuladorApi.Services
             if (attempt == null || attempt.Scenario == null)
                 return null;
 
-            var phaseOrder = new List<string>
-    {
-        "Empatizar",
-        "Definir",
-        "Idear",
-        "Prototipar",
-        "Evaluar"
-    };
+            var phaseOrder = attempt.Scenario.PhaseSettings
+                .Where(p => p.IsEnabled)
+                .OrderBy(p => p.PhaseOrder)
+                .Select(p => p.PhaseName)
+                .ToList();
 
             return new SimulationResultsDto
             {
                 AttemptId = attempt.Id,
                 ScenarioTitle = attempt.Scenario.Title,
+                MethodologyCode = attempt.Scenario.Methodology,
+                MethodologyName = GetMethodologyName(attempt.Scenario.Methodology),
                 Status = attempt.Status,
                 FinalScore = attempt.FinalScore,
                 FinalFeedback = attempt.FinalFeedback,
                 PhaseScores = attempt.PhaseResponses
-                    .OrderBy(p => phaseOrder.IndexOf(p.PhaseName))
+                    .OrderBy(p =>
+                    {
+                        var phaseIndex = phaseOrder.IndexOf(p.PhaseName);
+                        return phaseIndex < 0 ? int.MaxValue : phaseIndex;
+                    })
                     .Select(p => new PhaseScoreDto
                     {
                         PhaseName = p.PhaseName,
@@ -587,11 +774,332 @@ namespace SimuladorApi.Services
             };
         }
 
+        private async Task<string> GenerateUniqueCourseCodeAsync()
+        {
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                var code = GenerateCourseCode();
+
+                var exists = await _context.Courses
+                    .AnyAsync(c => c.Code == code);
+
+                if (!exists)
+                    return code;
+            }
+
+            throw new Exception("No se pudo generar un código único para el curso.");
+        }
+
         private static string GenerateCourseCode()
         {
             var random = Guid.NewGuid().ToString("N")[..6].ToUpper();
             return $"IMP-{random}";
         }
+
+        private static string NormalizeCourseCode(string value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : value.Trim().ToUpperInvariant();
+        }
+
+        private static (bool Success, string Message) ValidateCsvFile(IFormFile? file)
+        {
+            if (file == null || file.Length == 0)
+                return (false, "Debe seleccionar un archivo CSV.");
+
+            if (file.Length > MaxCsvFileBytes)
+                return (false, "El archivo CSV supera el tamaño máximo permitido.");
+
+            var extension = Path.GetExtension(file.FileName);
+
+            if (!string.Equals(extension, ".csv", StringComparison.OrdinalIgnoreCase))
+                return (false, "Solo se aceptan archivos .csv.");
+
+            return (true, string.Empty);
+        }
+
+        private static (
+            bool Success,
+            string Message,
+            ImportStudentsResultDto Result,
+            List<ImportStudentRow> ValidRows) ParseStudentCsv(string csvContent)
+        {
+            var result = new ImportStudentsResultDto();
+            var validRows = new List<ImportStudentRow>();
+
+            if (string.IsNullOrWhiteSpace(csvContent))
+                return (false, "El archivo CSV está vacío.", result, validRows);
+
+            List<List<string>> rows;
+
+            try
+            {
+                rows = ParseCsvRows(csvContent);
+            }
+            catch
+            {
+                return (false, "El archivo CSV no tiene un formato válido.", result, validRows);
+            }
+
+            rows = rows
+                .Where(row => row.Any(value => !string.IsNullOrWhiteSpace(value)))
+                .ToList();
+
+            if (rows.Count <= 1)
+                return (false, "El archivo CSV no contiene estudiantes.", result, validRows);
+
+            var header = rows[0]
+                .Select(value => NormalizeHeader(value))
+                .ToList();
+
+            var nameIndex = FindHeaderIndex(header, new[] { "name", "nombre", "fullname" });
+            var emailIndex = FindHeaderIndex(header, new[] { "email", "correo" });
+
+            if (nameIndex < 0 || emailIndex < 0)
+                return (false, "El CSV debe contener las columnas name y email.", result, validRows);
+
+            var allowedHeaders = new HashSet<string>
+            {
+                "name",
+                "nombre",
+                "fullname",
+                "email",
+                "correo"
+            };
+
+            if (header.Any(column => !allowedHeaders.Contains(column)))
+                return (false, "El CSV solo puede contener columnas de nombre y correo.", result, validRows);
+
+            var dataRows = rows.Skip(1).ToList();
+
+            if (dataRows.Count > MaxImportRows)
+                return (false, $"El archivo no puede contener más de {MaxImportRows} estudiantes.", result, validRows);
+
+            var emailsInFile = new HashSet<string>();
+
+            for (var index = 0; index < dataRows.Count; index++)
+            {
+                var row = dataRows[index];
+                var rowNumber = index + 2;
+
+                result.TotalRows++;
+
+                if (row.Count > header.Count &&
+                    row.Skip(header.Count).Any(value => !string.IsNullOrWhiteSpace(value)))
+                {
+                    AddImportError(result, rowNumber, string.Empty, string.Empty, "La fila tiene más columnas de las esperadas.");
+                    continue;
+                }
+
+                var name = GetCsvValue(row, nameIndex).Trim();
+                var email = GetCsvValue(row, emailIndex).Trim().ToLowerInvariant();
+
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    AddImportError(result, rowNumber, name, email, "El nombre es obligatorio.");
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(email))
+                {
+                    AddImportError(result, rowNumber, name, email, "El correo es obligatorio.");
+                    continue;
+                }
+
+                if (!IsValidEmail(email))
+                {
+                    AddImportError(result, rowNumber, name, email, "El correo no tiene un formato válido.");
+                    continue;
+                }
+
+                if (!emailsInFile.Add(email))
+                {
+                    AddImportError(result, rowNumber, name, email, "El correo está duplicado dentro del archivo.");
+                    continue;
+                }
+
+                validRows.Add(new ImportStudentRow(rowNumber, name, email));
+            }
+
+            result.FailedRows = result.Errors.Count;
+
+            return (true, string.Empty, result, validRows);
+        }
+
+        private static List<List<string>> ParseCsvRows(string content)
+        {
+            var delimiter = DetectCsvDelimiter(content);
+            var rows = new List<List<string>>();
+            var row = new List<string>();
+            var field = new StringBuilder();
+            var inQuotes = false;
+
+            for (var index = 0; index < content.Length; index++)
+            {
+                var current = content[index];
+
+                if (current == '"')
+                {
+                    if (inQuotes &&
+                        index + 1 < content.Length &&
+                        content[index + 1] == '"')
+                    {
+                        field.Append('"');
+                        index++;
+                        continue;
+                    }
+
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+
+                if (current == delimiter && !inQuotes)
+                {
+                    row.Add(field.ToString());
+                    field.Clear();
+                    continue;
+                }
+
+                if ((current == '\r' || current == '\n') && !inQuotes)
+                {
+                    if (current == '\r' &&
+                        index + 1 < content.Length &&
+                        content[index + 1] == '\n')
+                    {
+                        index++;
+                    }
+
+                    row.Add(field.ToString());
+                    rows.Add(row);
+                    row = new List<string>();
+                    field.Clear();
+                    continue;
+                }
+
+                field.Append(current);
+            }
+
+            if (inQuotes)
+                throw new FormatException("CSV con comillas sin cerrar.");
+
+            row.Add(field.ToString());
+            rows.Add(row);
+
+            return rows;
+        }
+
+        private static char DetectCsvDelimiter(string content)
+        {
+            var commaCount = 0;
+            var semicolonCount = 0;
+            var tabCount = 0;
+            var inQuotes = false;
+
+            for (var index = 0; index < content.Length; index++)
+            {
+                var current = content[index];
+
+                if (current == '"')
+                {
+                    if (inQuotes &&
+                        index + 1 < content.Length &&
+                        content[index + 1] == '"')
+                    {
+                        index++;
+                        continue;
+                    }
+
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+
+                if ((current == '\r' || current == '\n') && !inQuotes)
+                    break;
+
+                if (inQuotes)
+                    continue;
+
+                if (current == ',')
+                    commaCount++;
+                else if (current == ';')
+                    semicolonCount++;
+                else if (current == '\t')
+                    tabCount++;
+            }
+
+            if (semicolonCount > commaCount && semicolonCount >= tabCount)
+                return ';';
+
+            if (tabCount > commaCount)
+                return '\t';
+
+            return ',';
+        }
+
+        private static int FindHeaderIndex(List<string> header, string[] aliases)
+        {
+            return header.FindIndex(column => aliases.Contains(column));
+        }
+
+        private static string NormalizeHeader(string value)
+        {
+            return value.Trim().ToLowerInvariant().Replace(" ", "");
+        }
+
+        private static string GetCsvValue(List<string> row, int index)
+        {
+            return index >= 0 && index < row.Count
+                ? row[index]
+                : string.Empty;
+        }
+
+        private static void AddImportError(
+            ImportStudentsResultDto result,
+            int rowNumber,
+            string name,
+            string email,
+            string message)
+        {
+            result.Errors.Add(new ImportStudentErrorDto
+            {
+                RowNumber = rowNumber,
+                Name = name,
+                Email = email,
+                Message = message
+            });
+        }
+
+        private static bool IsValidEmail(string email)
+        {
+            return Regex.IsMatch(
+                email,
+                "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+                RegexOptions.CultureInvariant
+            );
+        }
+
+        private static string GenerateTemporaryPassword()
+        {
+            const string chars =
+                "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!#$%";
+
+            var bytes = RandomNumberGenerator.GetBytes(12);
+            var password = new char[12];
+
+            for (var index = 0; index < password.Length; index++)
+            {
+                password[index] = chars[bytes[index] % chars.Length];
+            }
+
+            return new string(password);
+        }
+
+        private record ImportStudentRow(
+            int RowNumber,
+            string Name,
+            string Email);
+
         private static bool IsFinished(string status)
         {
             var normalized = status.Trim().ToLower();

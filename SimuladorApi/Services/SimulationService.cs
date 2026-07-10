@@ -167,8 +167,8 @@ namespace SimuladorApi.Services
         PhaseName = o.PhaseName,
         OptionType = o.OptionType,
         Text = o.Text,
-        Score = o.Score,
-        IsCorrect = o.IsCorrect,
+        Score = 0,
+        IsCorrect = false,
         ImpactJson = o.ImpactJson,
         OrderIndex = o.OrderIndex,
         Cost = o.Cost,
@@ -490,43 +490,108 @@ namespace SimuladorApi.Services
             var attempt = await _context.SimulationAttempts
                 .Include(a => a.Scenario)
                     .ThenInclude(s => s!.PhaseSettings)
+                .Include(a => a.Scenario)
+                    .ThenInclude(s => s!.Options)
                 .Include(a => a.PhaseResponses)
+                    .ThenInclude(r => r.Answers)
                 .Include(a => a.KpiResults)
-                .FirstOrDefaultAsync(a => a.Id == attemptId && a.StudentId == studentId);
+                .FirstOrDefaultAsync(a =>
+                    a.Id == attemptId &&
+                    a.StudentId == studentId);
 
             if (attempt == null || attempt.Scenario == null)
                 return null;
+
+            if (attempt.Status != "Finished")
+                return null;
+
             var phaseOrder = GetScenarioPhaseOrder(attempt.Scenario);
+
+            var phaseReviews = attempt.PhaseResponses
+                .OrderBy(response => phaseOrder.IndexOf(response.PhaseName))
+                .Select(response =>
+                {
+                    var selectionAnswer = response.Answers
+                        .FirstOrDefault(answer =>
+                            answer.QuestionType == "Selection");
+
+                    var textAnswer = response.Answers
+                        .FirstOrDefault(answer =>
+                            answer.QuestionType == "Text");
+
+                    var selectedOptionIds = DeserializeSelectedOptionIds(
+                        selectionAnswer?.SelectedOptionIdsJson
+                    );
+
+                    var optionsToReview = attempt.Scenario.Options
+                        .Where(option =>
+                            NormalizePhaseName(option.PhaseName) ==
+                            NormalizePhaseName(response.PhaseName))
+                        .Where(option =>
+                            selectedOptionIds.Contains(option.Id) ||
+                            option.IsCorrect)
+                        .OrderBy(option => option.OrderIndex)
+                        .Select(option => new OptionAnswerReviewDto
+                        {
+                            OptionId = option.Id,
+                            OptionType = option.OptionType,
+                            Text = option.Text,
+                            Score = option.Score,
+                            WasSelected = selectedOptionIds.Contains(option.Id),
+                            IsCorrect = option.IsCorrect
+                        })
+                        .ToList();
+
+                    return new PhaseAnswerReviewDto
+                    {
+                        PhaseName = response.PhaseName,
+                        SelectionScore = selectionAnswer?.Score ?? 0,
+                        SelectionFeedback = selectionAnswer?.Feedback ?? string.Empty,
+                        TextAnswer = textAnswer?.TextAnswer ?? string.Empty,
+                        TextAnswerScore = textAnswer?.Score ?? 0,
+                        TextAnswerFeedback = textAnswer?.Feedback ?? string.Empty,
+                        Options = optionsToReview
+                    };
+                })
+                .ToList();
 
             return new SimulationResultsDto
             {
                 AttemptId = attempt.Id,
                 ScenarioTitle = attempt.Scenario.Title,
                 MethodologyCode = attempt.Scenario.Methodology,
-                MethodologyName = GetMethodologyName(attempt.Scenario.Methodology),
+                MethodologyName = GetMethodologyName(
+                    attempt.Scenario.Methodology
+                ),
                 Status = attempt.Status,
                 FinalScore = attempt.FinalScore,
                 FinalFeedback = attempt.FinalFeedback,
+
                 PhaseScores = attempt.PhaseResponses
-                    .OrderBy(p => phaseOrder.IndexOf(p.PhaseName))
-                    .Select(p => new PhaseScoreDto
+                    .OrderBy(response =>
+                        phaseOrder.IndexOf(response.PhaseName))
+                    .Select(response => new PhaseScoreDto
                     {
-                        PhaseName = p.PhaseName,
-                        Score = p.Score,
-                        Feedback = p.Feedback
+                        PhaseName = response.PhaseName,
+                        Score = response.Score,
+                        Feedback = response.Feedback
                     })
                     .ToList(),
+
+                PhaseReviews = phaseReviews,
+
                 KpiResults = attempt.KpiResults
-                    .Select(k => new KpiResultDto
+                    .Select(kpi => new KpiResultDto
                     {
-                        KpiName = k.KpiName,
-                        InitialValue = k.InitialValue,
-                        FinalValue = k.FinalValue,
-                        Unit = k.Unit
+                        KpiName = kpi.KpiName,
+                        InitialValue = kpi.InitialValue,
+                        FinalValue = kpi.FinalValue,
+                        Unit = kpi.Unit
                     })
                     .ToList()
             };
         }
+
 
         public async Task<List<SimulationHistoryItemDto>> GetMyHistoryAsync(int studentId)
         {
@@ -779,6 +844,22 @@ namespace SimuladorApi.Services
             attempt.TriggeredEventsJson = JsonSerializer.Serialize(events);
 
             return JsonSerializer.Serialize(newEvent);
+        }
+
+        private static List<int> DeserializeSelectedOptionIds(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return new List<int>();
+
+            try
+            {
+                return JsonSerializer.Deserialize<List<int>>(json)
+                       ?? new List<int>();
+            }
+            catch
+            {
+                return new List<int>();
+            }
         }
 
         private static List<string> DeserializeStringList(string json)

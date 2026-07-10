@@ -26,6 +26,10 @@ function CourseDetailPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [importMessage, setImportMessage] = useState("");
 
   const loadCourse = useCallback(
     async (showLoader = false) => {
@@ -170,6 +174,102 @@ function CourseDetailPage() {
     } finally {
       setAssigning(false);
     }
+  };
+
+  const downloadTemplateCsv = () => {
+    downloadCsv(
+      "plantilla-estudiantes.csv",
+      [
+        ["name", "email"],
+        ["Estudiante Uno", "estudiante1@udla.edu.ec"],
+        ["Estudiante Dos", "estudiante2@udla.edu.ec"],
+      ]
+    );
+  };
+
+  const handleImportFileChange = (event) => {
+    const file = event.target.files?.[0] || null;
+
+    setImportFile(file);
+    setImportResult(null);
+    setImportMessage("");
+
+    if (file && !file.name.toLowerCase().endsWith(".csv")) {
+      setImportMessage("Solo se aceptan archivos .csv.");
+    }
+  };
+
+  const importStudents = async () => {
+    if (!importFile) {
+      setImportMessage("Selecciona un archivo CSV.");
+      return;
+    }
+
+    if (!importFile.name.toLowerCase().endsWith(".csv")) {
+      setImportMessage("Solo se aceptan archivos .csv.");
+      return;
+    }
+
+    setImporting(true);
+    setImportMessage("");
+    setImportResult(null);
+
+    try {
+      const token = getToken();
+      const formData = new FormData();
+      formData.append("file", importFile);
+
+      const response = await api.post(
+        `/courses/${courseId}/students/import`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      setImportResult(response.data);
+      setImportMessage("Importación completada.");
+      setImportFile(null);
+      await loadCourse(false);
+    } catch (error) {
+      setImportMessage(
+        error.response
+          ? typeof error.response.data === "string"
+            ? error.response.data
+            : JSON.stringify(error.response.data)
+          : "No se pudo importar el archivo."
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const downloadTemporaryCredentials = () => {
+    const credentials = importResult?.credentials || [];
+
+    if (!credentials.length) return;
+
+    downloadCsv(
+      `credenciales-${course.code}.csv`,
+      [
+        [
+          "name",
+          "email",
+          "temporaryPassword",
+          "courseCode",
+        ],
+        ...credentials.map((credential) => [
+          credential.name,
+          credential.email,
+          credential.temporaryPassword,
+          credential.courseCode,
+        ]),
+      ],
+      true
+    );
   };
 
   useEffect(() => {
@@ -384,6 +484,138 @@ function CourseDetailPage() {
       </div>
 
       <div className="pro-card">
+        <div className="section-header">
+          <div>
+            <span className="eyebrow">
+              Matrícula masiva
+            </span>
+
+            <h2>Importar estudiantes</h2>
+          </div>
+        </div>
+
+        <p>
+          Sube un archivo CSV en formato UTF-8 con las columnas name,email.
+          Las cuentas nuevas se crearán como Estudiante y quedarán inscritas en
+          este curso.
+        </p>
+
+        <div className="import-actions">
+          <button
+            type="button"
+            className="button-link"
+            onClick={downloadTemplateCsv}
+          >
+            Descargar plantilla CSV
+          </button>
+
+          <label className="csv-file-picker">
+            <span>Archivo CSV</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleImportFileChange}
+            />
+          </label>
+
+          <button
+            type="button"
+            className="primary-action"
+            onClick={importStudents}
+            disabled={importing || !importFile}
+          >
+            {importing
+              ? "Importando..."
+              : "Crear cuentas e inscribir"}
+          </button>
+        </div>
+
+        {importFile && (
+          <p className="import-file-name">
+            Archivo seleccionado: {importFile.name}
+          </p>
+        )}
+
+        {importMessage && (
+          <div className="message pro-message">
+            {importMessage}
+          </div>
+        )}
+
+        {importResult && (
+          <div className="import-result-panel">
+            <h3>Importación completada</h3>
+
+            <div className="import-summary-grid">
+              <div>
+                <span>Registros procesados</span>
+                <strong>{importResult.totalRows}</strong>
+              </div>
+
+              <div>
+                <span>Cuentas nuevas</span>
+                <strong>{importResult.newUsersCreated}</strong>
+              </div>
+
+              <div>
+                <span>Existentes matriculados</span>
+                <strong>
+                  {importResult.existingStudentsEnrolled}
+                </strong>
+              </div>
+
+              <div>
+                <span>Ya inscritos</span>
+                <strong>{importResult.alreadyEnrolled}</strong>
+              </div>
+
+              <div>
+                <span>Registros con error</span>
+                <strong>{importResult.failedRows}</strong>
+              </div>
+            </div>
+
+            {(importResult.credentials || []).length > 0 && (
+              <div className="temporary-credentials-warning">
+                <strong>
+                  Las contraseñas temporales se muestran una sola vez.
+                </strong>
+                <p>
+                  Guarda el archivo en un lugar seguro y entrégalas
+                  individualmente a los estudiantes.
+                </p>
+
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={downloadTemporaryCredentials}
+                >
+                  Descargar credenciales nuevas
+                </button>
+              </div>
+            )}
+
+            {(importResult.errors || []).length > 0 && (
+              <div className="import-error-list">
+                <h4>Errores</h4>
+
+                {(importResult.errors || []).map((error) => (
+                  <div
+                    key={`${error.rowNumber}-${error.email}`}
+                    className="import-error-row"
+                  >
+                    <strong>Fila {error.rowNumber}</strong>
+                    <span>{error.email || "Sin correo"}</span>
+                    <p>{error.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="pro-card">
         <h2>Estudiantes inscritos</h2>
 
         {students.length === 0 ? (
@@ -414,6 +646,40 @@ function CourseDetailPage() {
       </div>
     </div>
   );
+}
+
+function downloadCsv(fileName, rows, sanitize = false) {
+  const csv = rows
+    .map((row) =>
+      row
+        .map((value) =>
+          escapeCsvValue(sanitize ? sanitizeCsvCell(value) : value)
+        )
+        .join(";")
+    )
+    .join("\r\n");
+
+  const blob = new Blob([csv], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  link.click();
+
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvValue(value) {
+  const safeValue = String(value ?? "");
+  return `"${safeValue.replaceAll('"', '""')}"`;
+}
+
+function sanitizeCsvCell(value) {
+  const text = String(value ?? "");
+  return /^[=+\-@]/.test(text) ? `'${text}` : text;
 }
 
 export default CourseDetailPage;

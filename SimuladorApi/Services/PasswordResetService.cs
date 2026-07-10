@@ -85,6 +85,7 @@ namespace SimuladorApi.Services
                 return (false, "Usuario no encontrado.");
 
             resetToken.User.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            resetToken.User.MustChangePassword = false;
             resetToken.Used = true;
             resetToken.UsedAt = DateTime.UtcNow;
 

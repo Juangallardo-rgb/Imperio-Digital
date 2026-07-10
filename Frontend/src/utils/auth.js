@@ -77,6 +77,10 @@ export function getUserFromToken() {
         ] ||
         decoded.role ||
         "",
+
+      mustChangePassword:
+        decoded.mustChangePassword === true ||
+        decoded.mustChangePassword === "true",
     };
   } catch (error) {
     console.error("No se pudo leer el token:", error);
