@@ -6881,6 +6881,34 @@ button:disabled {
   background: var(--app-warning);
 }
 
+/* Contrast corrections for colored dashboard highlights and simulation context. */
+.insight-card.best {
+  background: var(--app-success);
+}
+
+.insight-card.risk {
+  background: var(--app-warning);
+}
+
+.insight-card.best span,
+.insight-card.best h2,
+.insight-card.best strong,
+.insight-card.best p,
+.insight-card.risk span,
+.insight-card.risk h2,
+.insight-card.risk strong,
+.insight-card.risk p {
+  color: #ffffff;
+}
+
+.simulation-context-summary span {
+  color: var(--app-text-secondary);
+}
+
+.simulation-context-summary strong {
+  color: var(--app-text);
+}
+
 .auth-pro-page {
   display: grid;
   min-height: 100vh;
