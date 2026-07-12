@@ -9,6 +9,76 @@ function containsAny(value, keywords) {
   return keywords.some((keyword) => value.includes(keyword));
 }
 
+export const EMPATHY_CATEGORIES = Object.freeze([
+  {
+    key: "pain",
+    label: "Dolor",
+    description: "Frustracion, obstaculo o problema que afecta al usuario.",
+  },
+  {
+    key: "need",
+    label: "Necesidad",
+    description: "Algo que el usuario requiere para lograr su objetivo o sentirse seguro.",
+  },
+  {
+    key: "behavior",
+    label: "Comportamiento",
+    description: "Accion observable que muestra como actua el usuario.",
+  },
+  {
+    key: "evidence",
+    label: "Evidencia",
+    description: "Dato, metrica, testimonio u observacion que respalda el analisis.",
+  },
+]);
+
+export function getEffectiveEvidenceLimit(evidenceCards, configuredMax) {
+  const availableCount = Array.isArray(evidenceCards)
+    ? evidenceCards.filter((card) => Number(card?.id) > 0).length
+    : 0;
+
+  if (availableCount === 0) return 0;
+
+  const parsedMax = Number(configuredMax);
+  const requestedMax = Number.isFinite(parsedMax) && parsedMax > 0
+    ? Math.floor(parsedMax)
+    : availableCount;
+
+  return Math.min(requestedMax, availableCount);
+}
+
+export function buildEmpathyCounts(selectedCards, classifications) {
+  return (Array.isArray(selectedCards) ? selectedCards : []).reduce(
+    (counts, card) => {
+      const category = classifications?.[card.id] || card.category;
+
+      if (Object.hasOwn(counts, category)) {
+        counts[category] += 1;
+      }
+
+      return counts;
+    },
+    { pain: 0, need: 0, behavior: 0, evidence: 0 }
+  );
+}
+
+export function getEvidenceGuidance(card, category) {
+  const tags = Array.isArray(card?.tags) ? card.tags : [];
+  const searchableText = normalizeText(
+    `${card?.text || ""} ${tags.join(" ")}`
+  );
+
+  if (containsAny(searchableText, ["color", "logo", "estetica", "branding"])) {
+    return "Este hallazgo puede ser util solo si se conecta con un problema real del usuario y no con una preferencia estetica aislada.";
+  }
+
+  const categoryLabel = EMPATHY_CATEGORIES.find(
+    (item) => item.key === category
+  )?.label.toLowerCase() || "hallazgo";
+
+  return `Evalua si este hallazgo representa un ${categoryLabel}, una necesidad, un comportamiento observable o una evidencia de apoyo. No todas las observaciones deben priorizarse.`;
+}
+
 export function createEvidenceCard(option) {
   const tags = Array.isArray(option?.tags) ? option.tags : [];
   const searchableText = normalizeText(`${option?.text || ""} ${tags.join(" ")}`);
@@ -53,14 +123,7 @@ export function getTraceForPhase(decisionTrace, phaseName) {
 
 export function buildEmpathySummary(selectedCards, classifications) {
   const selected = Array.isArray(selectedCards) ? selectedCards : [];
-  const counts = selected.reduce(
-    (summary, card) => {
-      const category = classifications?.[card.id] || card.category;
-      summary[category] = (summary[category] || 0) + 1;
-      return summary;
-    },
-    { pain: 0, need: 0, behavior: 0, evidence: 0 }
-  );
+  const counts = buildEmpathyCounts(selected, classifications);
 
   if (selected.length === 0) {
     return "Aun no has priorizado hallazgos para el resumen de empatia.";

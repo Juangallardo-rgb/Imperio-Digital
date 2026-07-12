@@ -9,6 +9,7 @@ const designThinkingManifest = {
   phases: {
     Empatizar: {
       interactionType: "evidence-classifier",
+      handlesEmptyOptions: true,
       title: "Explora evidencia del usuario",
       objective: "Prioriza las observaciones que mejor describen el desafio antes de proponer una solucion.",
       component: EmpathizeExperience,

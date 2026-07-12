@@ -39,6 +39,9 @@ function ExperienceShell({
   children,
 }) {
   const currentPhaseKey = normalizeExperienceKey(model.phase.name);
+  const isEmpathizeResearchFlow =
+    model.methodology.code === "DesignThinking" &&
+    currentPhaseKey === "empatizar";
   const completedKeys = new Set(
     model.phase.completed.map((phase) => normalizeExperienceKey(phase))
   );
@@ -64,7 +67,9 @@ function ExperienceShell({
             Has sido contratado como consultor para resolver este desafio de
             transformacion digital.
           </p>
-          {model.scenario.description && <p>{model.scenario.description}</p>}
+          {!isEmpathizeResearchFlow && model.scenario.description && (
+            <p>{model.scenario.description}</p>
+          )}
         </div>
         <div className="experience-current-phase">
           <span>Fase actual</span>
@@ -73,24 +78,26 @@ function ExperienceShell({
         </div>
       </header>
 
-      <section className="experience-briefing" aria-label="Briefing del escenario">
-        <article>
-          <span>Empresa</span>
-          <strong>{model.scenario.companyType || "No especificada"}</strong>
-        </article>
-        <article>
-          <span>Problema</span>
-          <strong>{model.scenario.problem || "No especificado"}</strong>
-        </article>
-        <article>
-          <span>Usuario objetivo</span>
-          <strong>{model.scenario.targetUser || "No especificado"}</strong>
-        </article>
-        <article>
-          <span>Restricciones</span>
-          <strong>{model.scenario.constraints || "No especificadas"}</strong>
-        </article>
-      </section>
+      {!isEmpathizeResearchFlow && (
+        <section className="experience-briefing" aria-label="Briefing del escenario">
+          <article>
+            <span>Empresa</span>
+            <strong>{model.scenario.companyType || "No especificada"}</strong>
+          </article>
+          <article>
+            <span>Problema</span>
+            <strong>{model.scenario.problem || "No especificado"}</strong>
+          </article>
+          <article>
+            <span>Usuario objetivo</span>
+            <strong>{model.scenario.targetUser || "No especificado"}</strong>
+          </article>
+          <article>
+            <span>Restricciones</span>
+            <strong>{model.scenario.constraints || "No especificadas"}</strong>
+          </article>
+        </section>
+      )}
 
       <nav className="experience-phase-progress" aria-label="Progreso de fases">
         {model.phaseOrder.map((phase) => {

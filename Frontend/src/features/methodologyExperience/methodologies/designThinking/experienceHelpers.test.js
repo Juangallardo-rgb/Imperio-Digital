@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildEmpathyCounts,
   buildEmpathySummary,
   buildProblemPreview,
   createEvidenceCard,
   createPrototypeModule,
   createTestCard,
+  getEffectiveEvidenceLimit,
+  getEvidenceGuidance,
   getDefinitionCue,
   getIdeaQuadrant,
   getTraceForPhase,
@@ -45,6 +48,38 @@ test("resume solo los hallazgos seleccionados", () => {
   assert.match(summary, /2 hallazgo/);
   assert.match(summary, /1 dolor/);
   assert.match(summary, /1 comportamiento/);
+});
+
+test("limita los hallazgos al menor valor entre configuracion y evidencias reales", () => {
+  const cards = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+  assert.equal(getEffectiveEvidenceLimit(cards, 5), 3);
+  assert.equal(getEffectiveEvidenceLimit(cards, 2), 2);
+  assert.equal(getEffectiveEvidenceLimit(cards, 0), 3);
+  assert.equal(getEffectiveEvidenceLimit([], 5), 0);
+});
+
+test("actualiza el mapa de empatia cuando cambia la clasificacion", () => {
+  const cards = [
+    { id: 1, category: "pain" },
+    { id: 2, category: "evidence" },
+  ];
+
+  assert.deepEqual(
+    buildEmpathyCounts(cards, { 1: "need" }),
+    { pain: 0, need: 1, behavior: 0, evidence: 1 }
+  );
+});
+
+test("la orientacion de evidencia es neutral y no revela correccion", () => {
+  const guidance = getEvidenceGuidance(
+    { text: "Cambiar el color del logo", tags: ["branding"], isCorrect: false },
+    "evidence"
+  );
+
+  assert.match(guidance, /problema real del usuario/);
+  assert.equal(guidance.includes("incorrect"), false);
+  assert.equal(guidance.includes("correct"), false);
 });
 
 test("mantiene continuidad de Empatizar sin depender de tildes", () => {
@@ -179,6 +214,23 @@ test("no expone correccion ni puntaje al adaptar una simulacion activa", () => {
 
   assert.equal(Object.hasOwn(model.options[0], "score"), false);
   assert.equal(Object.hasOwn(model.options[0], "isCorrect"), false);
+});
+
+test("mantiene una fase sin evidencias compatible con el estado vacio de Empatizar", () => {
+  const model = adaptCurrentSimulation({
+    current: {
+      attemptId: 31,
+      methodologyCode: "DesignThinking",
+      methodologyName: "Design Thinking",
+      currentPhaseName: "Empatizar",
+      currentPhaseOrder: 1,
+      phaseOrder: [{ phaseName: "Empatizar", phaseOrder: 1, phaseWeight: 20 }],
+      currentPhaseOptions: [],
+    },
+  });
+
+  assert.equal(model.isCompatible, true);
+  assert.deepEqual(model.options, []);
 });
 
 test("construye el recorrido V2 solo con datos de un resultado final", () => {

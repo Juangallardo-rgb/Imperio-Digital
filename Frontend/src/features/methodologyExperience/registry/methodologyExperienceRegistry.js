@@ -39,5 +39,9 @@ export function resolveMethodologyExperience(model) {
     return { enabled: false, reason: "phase-not-configured" };
   }
 
+  if (!model.hasOptions && phase.handlesEmptyOptions !== true) {
+    return { enabled: false, reason: "empty-options" };
+  }
+
   return { enabled: true, manifest, phase };
 }

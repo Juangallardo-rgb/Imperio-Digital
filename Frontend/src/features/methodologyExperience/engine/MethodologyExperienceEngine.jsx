@@ -46,7 +46,8 @@ function MethodologyExperienceEngine({
   }
 
   const scenarioCompatibility = resolveLegacyScenarioExperience(model);
-  const Activity = scenarioCompatibility.useGenericActivity
+  const handlesEmptyOptions = resolution.phase.handlesEmptyOptions === true;
+  const Activity = scenarioCompatibility.useGenericActivity && !handlesEmptyOptions
     ? GenericPhaseExperience
     : resolution.phase.component;
   const resetKey = `${model.attemptId}-${model.phase.name}-${Boolean(phaseFeedback)}`;

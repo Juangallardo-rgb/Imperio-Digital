@@ -118,6 +118,7 @@ export function adaptCurrentSimulation({
     },
     phaseOrder,
     options,
+    hasOptions: options.length > 0,
     selection: {
       selectedOptionIds: Array.isArray(selectedOptionIds) ? selectedOptionIds : [],
       textAnswer: typeof textAnswer === "string" ? textAnswer : "",
@@ -146,7 +147,6 @@ export function adaptCurrentSimulation({
       Number(current?.attemptId) > 0 &&
       Boolean(currentPhaseName) &&
       phaseOrder.length > 0 &&
-      isCurrentPhaseInOrder(currentPhaseName, phaseOrder) &&
-      options.length > 0,
+      isCurrentPhaseInOrder(currentPhaseName, phaseOrder),
   };
 }
