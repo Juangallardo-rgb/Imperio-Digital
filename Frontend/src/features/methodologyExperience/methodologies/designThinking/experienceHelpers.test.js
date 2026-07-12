@@ -3,11 +3,14 @@ import test from "node:test";
 import {
   buildEmpathyCounts,
   buildEmpathySummary,
+  buildDefinitionDraft,
   buildProblemPreview,
+  cleanSentencePart,
   createEvidenceCard,
   createPrototypeModule,
   createTestCard,
   getEffectiveEvidenceLimit,
+  getEffectiveDefinitionLimit,
   getEvidenceGuidance,
   getDefinitionCue,
   getIdeaQuadrant,
@@ -96,7 +99,7 @@ test("construye un problema con usuario, necesidad e insight", () => {
 
   assert.equal(
     preview,
-    "Clientes moviles necesita entender el proceso porque abandonan ante costos inesperados."
+    "Clientes moviles necesitan entender el proceso porque abandonan ante costos inesperados."
   );
 });
 
@@ -214,6 +217,49 @@ test("no expone correccion ni puntaje al adaptar una simulacion activa", () => {
 
   assert.equal(Object.hasOwn(model.options[0], "score"), false);
   assert.equal(Object.hasOwn(model.options[0], "isCorrect"), false);
+});
+
+test("limpia conectores repetidos y conserva concordancia en el constructor", () => {
+  const preview = buildProblemPreview({
+    userSegment: "Los estudiantes universitarios.",
+    need: "Necesitan un proceso claro y confiable.",
+    insight: "Porque existen demoras y errores al completar el tramite.",
+  });
+
+  assert.equal(
+    preview,
+    "Los estudiantes universitarios necesitan un proceso claro y confiable porque existen demoras y errores al completar el tramite."
+  );
+  assert.equal(
+    cleanSentencePart(" porque existe friccion. ", { removeBecause: true }),
+    "existe friccion"
+  );
+});
+
+test("genera un borrador centrado en el problema sin duplicar el enunciado", () => {
+  const draft = buildDefinitionDraft({
+    userSegment: "Cliente movil",
+    need: "necesita entender el costo final",
+    insight: "porque abandona ante cobros inesperados",
+  });
+
+  assert.match(draft, /Cliente movil/);
+  assert.equal(draft.includes("necesita necesita"), false);
+  assert.equal(draft.includes("porque porque"), false);
+  assert.equal(buildDefinitionDraft({ userSegment: "", need: "", insight: "" }), "");
+});
+
+test("limita las formulaciones de Definir a las opciones disponibles", () => {
+  assert.equal(
+    getEffectiveDefinitionLimit([
+      { id: 1, maxSelections: 2 },
+      { id: 2, maxSelections: 2 },
+      { id: 3, maxSelections: 2 },
+    ]),
+    2
+  );
+  assert.equal(getEffectiveDefinitionLimit([{ id: 1 }]), 1);
+  assert.equal(getEffectiveDefinitionLimit([]), 0);
 });
 
 test("mantiene una fase sin evidencias compatible con el estado vacio de Empatizar", () => {

@@ -30,6 +30,26 @@ function getEventValue(event, camelName, pascalName) {
   return event?.[camelName] ?? event?.[pascalName];
 }
 
+function getDisplayedSelectionLimit(model, currentPhaseKey) {
+  const isDefineProblemLab =
+    model.methodology.code === "DesignThinking" &&
+    currentPhaseKey === "definir";
+
+  if (!isDefineProblemLab) {
+    return model.selection.maxSelections;
+  }
+
+  const options = Array.isArray(model.options) ? model.options : [];
+  const configuredLimits = options
+    .map((option) => Number(option?.maxSelections))
+    .filter((limit) => Number.isFinite(limit) && limit > 0);
+  const configuredMax = configuredLimits.length > 0
+    ? Math.max(...configuredLimits)
+    : 1;
+
+  return options.length > 0 ? Math.min(configuredMax, options.length) : 0;
+}
+
 function ExperienceShell({
   model,
   phaseFeedback,
@@ -42,6 +62,13 @@ function ExperienceShell({
   const isEmpathizeResearchFlow =
     model.methodology.code === "DesignThinking" &&
     currentPhaseKey === "empatizar";
+  const isDefineProblemLab =
+    model.methodology.code === "DesignThinking" &&
+    currentPhaseKey === "definir";
+  const displayedSelectionLimit = getDisplayedSelectionLimit(
+    model,
+    currentPhaseKey
+  );
   const completedKeys = new Set(
     model.phase.completed.map((phase) => normalizeExperienceKey(phase))
   );
@@ -161,7 +188,7 @@ function ExperienceShell({
             <section className="experience-decision-summary">
               <h2>Decision actual</h2>
               <dl>
-                <div><dt>Seleccionadas</dt><dd>{model.selection.selectedOptionIds.length}/{model.selection.maxSelections}</dd></div>
+                <div><dt>Seleccionadas</dt><dd>{model.selection.selectedOptionIds.length}/{displayedSelectionLimit}</dd></div>
                 <div><dt>Costo</dt><dd>{formatNumber(model.selection.totals.cost)} pts</dd></div>
                 <div><dt>Tiempo</dt><dd>{formatNumber(model.selection.totals.time)} sem</dd></div>
                 <div><dt>Riesgo</dt><dd>{model.selection.totals.risk > 0 ? "+" : ""}{formatNumber(model.selection.totals.risk)}</dd></div>
@@ -201,7 +228,7 @@ function ExperienceShell({
             </section>
           ) : (
             <>
-              {previousDecisions.length > 0 && (
+              {!isDefineProblemLab && previousDecisions.length > 0 && (
                 <section className="experience-continuity" aria-label="Decisiones anteriores">
                   <span className="experience-eyebrow">Continuidad del caso</span>
                   <h2>Decisiones que ya condicionan esta fase</h2>

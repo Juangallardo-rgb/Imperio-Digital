@@ -132,12 +132,94 @@ export function buildEmpathySummary(selectedCards, classifications) {
   return `${selected.length} hallazgo(s) priorizado(s): ${counts.pain} dolor(es), ${counts.need} necesidad(es), ${counts.behavior} comportamiento(s) y ${counts.evidence} evidencia(s).`;
 }
 
-export function buildProblemPreview({ userSegment, need, insight }) {
-  const resolvedUser = String(userSegment || "el usuario objetivo").trim();
-  const resolvedNeed = String(need || "resolver la necesidad priorizada").trim();
-  const resolvedInsight = String(insight || "la evidencia disponible").trim();
+export function cleanSentencePart(value, { removeNeed = false, removeBecause = false } = {}) {
+  let text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.]+$/g, "")
+    .trim();
 
-  return `${resolvedUser} necesita ${resolvedNeed} porque ${resolvedInsight}.`;
+  if (removeNeed) {
+    text = text.replace(/^(necesita|necesitan)\s+/i, "");
+  }
+
+  if (removeBecause) {
+    text = text.replace(/^porque\s+/i, "");
+  }
+
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function lowercaseSentenceStart(value) {
+  const text = String(value || "");
+  const first = text.charAt(0);
+  const second = text.charAt(1);
+
+  if (
+    first &&
+    first !== first.toLowerCase() &&
+    (!second || second === second.toLowerCase())
+  ) {
+    return `${first.toLowerCase()}${text.slice(1)}`;
+  }
+
+  return text;
+}
+
+function capitalizeSentenceStart(value) {
+  const text = String(value || "");
+  const first = text.charAt(0);
+
+  return first ? `${first.toUpperCase()}${text.slice(1)}` : text;
+}
+
+function usesPluralNeedVerb(value) {
+  return /^(los|las|personas|usuarios|usuarias|clientes|estudiantes|equipos|profesionales|empleados|trabajadores)\b/i.test(
+    String(value || "").trim()
+  );
+}
+
+export function buildProblemPreview({ userSegment, need, insight }) {
+  const resolvedUser = cleanSentencePart(userSegment);
+  const resolvedNeed = cleanSentencePart(need, { removeNeed: true });
+  const resolvedInsight = cleanSentencePart(insight, { removeBecause: true });
+
+  if (!resolvedUser || !resolvedNeed || !resolvedInsight) {
+    return "Completa el usuario, la necesidad y la evidencia para construir el enunciado.";
+  }
+
+  const needVerb = usesPluralNeedVerb(resolvedUser) ? "necesitan" : "necesita";
+
+  return `${capitalizeSentenceStart(resolvedUser)} ${needVerb} ${lowercaseSentenceStart(resolvedNeed)} porque ${lowercaseSentenceStart(resolvedInsight)}.`;
+}
+
+export function buildDefinitionDraft({ userSegment, need, insight }) {
+  const preview = buildProblemPreview({ userSegment, need, insight });
+
+  if (preview.startsWith("Completa el usuario")) {
+    return "";
+  }
+
+  const resolvedUser = cleanSentencePart(userSegment);
+  const resolvedNeed = cleanSentencePart(need, { removeNeed: true });
+  const resolvedInsight = cleanSentencePart(insight, { removeBecause: true });
+
+  return `La definicion se centra en ${resolvedUser}. Su necesidad principal es ${lowercaseSentenceStart(resolvedNeed)} y la evidencia indica que ${lowercaseSentenceStart(resolvedInsight)}. Por ello, conviene comprender este problema antes de proponer una solucion.`;
+}
+
+export function getEffectiveDefinitionLimit(options) {
+  const availableCount = Array.isArray(options) ? options.length : 0;
+
+  if (availableCount === 0) return 0;
+
+  const configuredLimits = options
+    .map((option) => Number(option?.maxSelections))
+    .filter((limit) => Number.isFinite(limit) && limit > 0);
+  const configuredMax = configuredLimits.length > 0
+    ? Math.max(...configuredLimits)
+    : 1;
+
+  return Math.min(configuredMax, availableCount);
 }
 
 export function getDefinitionCue(value) {
