@@ -246,15 +246,73 @@ export function normalizeLevel(value) {
   return "";
 }
 
-export function getIdeaQuadrant(option) {
+export function getIdeaProfile(option) {
   const impact = normalizeLevel(option?.expectedImpactLevel);
   const effort = normalizeLevel(option?.expectedEffortLevel);
+  const viability = normalizeLevel(option?.expectedViabilityLevel);
+  const canUsePriorityMatrix =
+    ["high", "low"].includes(impact) &&
+    ["high", "low"].includes(effort);
 
-  if (!impact || !effort || impact === "medium" || effort === "medium") {
-    return "unclassified";
-  }
+  return {
+    impact,
+    effort,
+    viability,
+    quadrant: canUsePriorityMatrix ? `${impact}-${effort}` : "unclassified",
+    needsReview: !canUsePriorityMatrix,
+  };
+}
 
-  return `${impact}-${effort}`;
+export function getIdeaQuadrant(option) {
+  return getIdeaProfile(option).quadrant;
+}
+
+export function getIdeaLevelLabel(level, kind) {
+  const labels = kind === "viability"
+    ? { high: "Alta", medium: "Media", low: "Baja" }
+    : { high: "Alto", medium: "Medio", low: "Bajo" };
+
+  return labels[level] || "Por revisar";
+}
+
+export function getEffectiveIdeaLimit(options, fallback = 3) {
+  const availableCount = Array.isArray(options) ? options.length : 0;
+
+  if (availableCount === 0) return 0;
+
+  const configuredLimits = options
+    .map((option) => Number(option?.maxSelections))
+    .filter((limit) => Number.isFinite(limit) && limit > 0);
+  const fallbackLimit = Number.isFinite(Number(fallback)) && Number(fallback) > 0
+    ? Math.floor(Number(fallback))
+    : 3;
+  const configuredMax = configuredLimits.length > 0
+    ? Math.max(...configuredLimits)
+    : fallbackLimit;
+
+  return Math.min(configuredMax, availableCount);
+}
+
+export function getPortfolioImpactLabel(ideas) {
+  const impacts = (Array.isArray(ideas) ? ideas : [])
+    .map((idea) => getIdeaProfile(idea).impact)
+    .filter(Boolean);
+
+  if (impacts.length === 0) return "Por revisar";
+  if (impacts.every((impact) => impact === "high")) return "Alto";
+  if (impacts.every((impact) => impact === "low")) return "Bajo";
+
+  return "Mixto";
+}
+
+export function getPortfolioTags(ideas) {
+  return [...new Set(
+    (Array.isArray(ideas) ? ideas : []).flatMap((idea) =>
+      Array.isArray(idea?.tags) ? idea.tags : []
+    )
+  )]
+    .filter((tag) => typeof tag === "string" && tag.trim())
+    .slice(0, 6);
 }
 
 export function buildStrategySummary(ideas) {
@@ -264,7 +322,16 @@ export function buildStrategySummary(ideas) {
     return "Aun no hay ideas priorizadas para la cartera estrategica.";
   }
 
-  return `Cartera priorizada: ${selectedIdeas.map((idea) => idea.text).join(" | ")}`;
+  const names = selectedIdeas
+    .map((idea) => String(idea?.text || "").trim())
+    .filter(Boolean);
+  const list = names.length === 0
+    ? "las ideas seleccionadas"
+    : names.length === 1
+    ? names[0]
+    : `${names.slice(0, -1).join(", ")} y ${names.at(-1)}`;
+
+  return `La cartera priorizada combina ${list}. Estas ideas se seleccionan para responder al problema definido y equilibrar impacto, esfuerzo, viabilidad y uso responsable de recursos antes de pasar a prototipo.`;
 }
 
 export function createPrototypeModule(option) {

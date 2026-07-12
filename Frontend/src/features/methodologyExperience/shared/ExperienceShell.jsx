@@ -31,11 +31,11 @@ function getEventValue(event, camelName, pascalName) {
 }
 
 function getDisplayedSelectionLimit(model, currentPhaseKey) {
-  const isDefineProblemLab =
+  const isFocusedDesignThinkingPhase =
     model.methodology.code === "DesignThinking" &&
-    currentPhaseKey === "definir";
+    ["definir", "idear"].includes(currentPhaseKey);
 
-  if (!isDefineProblemLab) {
+  if (!isFocusedDesignThinkingPhase) {
     return model.selection.maxSelections;
   }
 
@@ -43,9 +43,10 @@ function getDisplayedSelectionLimit(model, currentPhaseKey) {
   const configuredLimits = options
     .map((option) => Number(option?.maxSelections))
     .filter((limit) => Number.isFinite(limit) && limit > 0);
+  const fallbackLimit = currentPhaseKey === "idear" ? 3 : 1;
   const configuredMax = configuredLimits.length > 0
     ? Math.max(...configuredLimits)
-    : 1;
+    : fallbackLimit;
 
   return options.length > 0 ? Math.min(configuredMax, options.length) : 0;
 }
@@ -62,9 +63,9 @@ function ExperienceShell({
   const isEmpathizeResearchFlow =
     model.methodology.code === "DesignThinking" &&
     currentPhaseKey === "empatizar";
-  const isDefineProblemLab =
+  const usesFocusedDesignThinkingContinuity =
     model.methodology.code === "DesignThinking" &&
-    currentPhaseKey === "definir";
+    ["definir", "idear"].includes(currentPhaseKey);
   const displayedSelectionLimit = getDisplayedSelectionLimit(
     model,
     currentPhaseKey
@@ -228,7 +229,7 @@ function ExperienceShell({
             </section>
           ) : (
             <>
-              {!isDefineProblemLab && previousDecisions.length > 0 && (
+              {!usesFocusedDesignThinkingContinuity && previousDecisions.length > 0 && (
                 <section className="experience-continuity" aria-label="Decisiones anteriores">
                   <span className="experience-eyebrow">Continuidad del caso</span>
                   <h2>Decisiones que ya condicionan esta fase</h2>

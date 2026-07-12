@@ -5,15 +5,21 @@ import {
   buildEmpathySummary,
   buildDefinitionDraft,
   buildProblemPreview,
+  buildStrategySummary,
   cleanSentencePart,
   createEvidenceCard,
   createPrototypeModule,
   createTestCard,
   getEffectiveEvidenceLimit,
   getEffectiveDefinitionLimit,
+  getEffectiveIdeaLimit,
   getEvidenceGuidance,
   getDefinitionCue,
+  getIdeaLevelLabel,
+  getIdeaProfile,
   getIdeaQuadrant,
+  getPortfolioImpactLabel,
+  getPortfolioTags,
   getTraceForPhase,
 } from "./experienceHelpers.js";
 import {
@@ -115,6 +121,55 @@ test("ubica ideas solo con niveles configurados", () => {
     "high-low"
   );
   assert.equal(getIdeaQuadrant({ expectedImpactLevel: "Alto" }), "unclassified");
+});
+
+test("normaliza niveles de Idear y deriva una ubicacion sin inventar extremos", () => {
+  assert.deepEqual(
+    getIdeaProfile({
+      expectedImpactLevel: "High",
+      expectedEffortLevel: "bajo",
+      expectedViabilityLevel: "Media",
+    }),
+    {
+      impact: "high",
+      effort: "low",
+      viability: "medium",
+      quadrant: "high-low",
+      needsReview: false,
+    }
+  );
+  assert.equal(
+    getIdeaQuadrant({ expectedImpactLevel: "Medio", expectedEffortLevel: "Alto" }),
+    "unclassified"
+  );
+  assert.equal(getIdeaLevelLabel("", "viability"), "Por revisar");
+  assert.equal(getIdeaLevelLabel("medium", "viability"), "Media");
+});
+
+test("limita los votos de Idear a las ideas disponibles", () => {
+  assert.equal(
+    getEffectiveIdeaLimit([
+      { id: 1, maxSelections: 5 },
+      { id: 2, maxSelections: 5 },
+    ]),
+    2
+  );
+  assert.equal(getEffectiveIdeaLimit([{ id: 1 }]), 1);
+  assert.equal(getEffectiveIdeaLimit([], 3), 0);
+});
+
+test("resume la cartera de Idear como una estrategia y solo usa tags visibles", () => {
+  const ideas = [
+    { text: "Simplificar el flujo", expectedImpactLevel: "Alto", tags: ["claridad"] },
+    { text: "Confirmaciones automaticas", expectedImpactLevel: "Bajo", tags: ["claridad", "confianza"] },
+  ];
+  const summary = buildStrategySummary(ideas);
+
+  assert.match(summary, /Simplificar el flujo y Confirmaciones automaticas/);
+  assert.match(summary, /equilibrar impacto/);
+  assert.equal(summary.includes(" | "), false);
+  assert.equal(getPortfolioImpactLabel(ideas), "Mixto");
+  assert.deepEqual(getPortfolioTags(ideas), ["claridad", "confianza"]);
 });
 
 test("adapta modulos y pruebas sin campos de correccion", () => {
