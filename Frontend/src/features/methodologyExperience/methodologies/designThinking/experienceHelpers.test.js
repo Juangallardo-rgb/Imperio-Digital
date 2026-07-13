@@ -4,6 +4,7 @@ import {
   buildEmpathyCounts,
   buildEmpathySummary,
   buildDefinitionDraft,
+  buildMvpSummary,
   buildProblemPreview,
   buildStrategySummary,
   cleanSentencePart,
@@ -13,14 +14,19 @@ import {
   getEffectiveEvidenceLimit,
   getEffectiveDefinitionLimit,
   getEffectiveIdeaLimit,
+  getEffectiveMvpLimit,
   getEvidenceGuidance,
   getDefinitionCue,
   getIdeaLevelLabel,
   getIdeaProfile,
   getIdeaQuadrant,
+  getMvpLearningLabel,
+  getMvpResourceSummary,
+  getMvpScope,
   getPortfolioImpactLabel,
   getPortfolioTags,
   getPortfolioViabilityLabel,
+  getPrototypeModuleTypeLabel,
   getTraceForPhase,
 } from "./experienceHelpers.js";
 import {
@@ -234,6 +240,71 @@ test("adapta modulos y pruebas sin campos de correccion", () => {
   assert.equal(Object.hasOwn(module, "isCorrect"), false);
   assert.equal(testCard.lens, "Problema observado");
   assert.equal(Object.hasOwn(testCard, "isCorrect"), false);
+});
+
+test("presenta modulos antiguos con lenguaje pedagogico sin inventar estimaciones", () => {
+  const legacyModule = createPrototypeModule({
+    id: 5,
+    text: "Confirmar la compra",
+    optionType: "ConfirmationStep",
+    cost: 0,
+    timeCost: null,
+    riskImpact: 0,
+  });
+
+  assert.equal(legacyModule.typeLabel, "Confirmacion");
+  assert.equal(legacyModule.hasCostEstimate, false);
+  assert.equal(legacyModule.hasTimeEstimate, false);
+  assert.equal(legacyModule.effortLevel, "");
+  assert.equal(getMvpResourceSummary([legacyModule]).cost, null);
+  assert.equal(getMvpResourceSummary([legacyModule]).time, null);
+  assert.equal(getMvpLearningLabel([legacyModule]), "Aprendizaje limitado: enfoca la prueba en una sola senal.");
+  assert.match(buildMvpSummary([legacyModule]), /sin construir el producto completo/);
+  assert.equal(Object.hasOwn(legacyModule, "score"), false);
+  assert.equal(Object.hasOwn(legacyModule, "isCorrect"), false);
+});
+
+test("resume un MVP con metadata completa y limita el alcance a modulos reales", () => {
+  const modules = [
+    createPrototypeModule({
+      id: 1,
+      text: "Mostrar costos claros",
+      optionType: "PrototypeFeature",
+      tags: ["clarity", "trust"],
+      cost: 12,
+      timeCost: 2,
+      riskImpact: 3,
+      maxSelections: 7,
+      expectedEffortLevel: "Bajo",
+    }),
+    createPrototypeModule({
+      id: 2,
+      text: "Confirmar la accion",
+      optionType: "UserFlowStep",
+      tags: ["confirmation"],
+      cost: 8,
+      timeCost: 1,
+      riskImpact: 1,
+      maxSelections: 7,
+      expectedEffortLevel: "Medio",
+    }),
+  ];
+
+  assert.equal(getPrototypeModuleTypeLabel("PrototypeFeature"), "Funcionalidad del MVP");
+  assert.equal(getPrototypeModuleTypeLabel("unknown-value"), "Modulo del MVP");
+  assert.equal(getEffectiveMvpLimit(modules), 2);
+  assert.equal(getEffectiveMvpLimit([modules[0]]), 1);
+  assert.equal(getEffectiveMvpLimit([]), 0);
+  assert.deepEqual(getMvpResourceSummary(modules), { cost: 20, time: 3, risk: 4 });
+  assert.equal(getMvpLearningLabel(modules), "Aprendizaje esperado: claridad, confianza y confirmacion.");
+  assert.match(buildMvpSummary(modules), /2 modulo\(s\) enfocados en validar claridad, confianza y confirmacion/);
+});
+
+test("orienta el alcance del MVP sin afectar la evaluacion", () => {
+  assert.equal(getMvpScope(0).label, "Sin construir");
+  assert.equal(getMvpScope(3).label, "Enfocado");
+  assert.equal(getMvpScope(5).label, "Amplio");
+  assert.equal(getMvpScope(6).label, "Riesgo de sobreconstruccion");
 });
 
 test("distingue un escenario V2 completo de uno heredado sin metadata", () => {

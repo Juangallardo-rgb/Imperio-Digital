@@ -47,8 +47,28 @@ function ConceptModal({ isOpen, onClose }) {
         <img src={mvpExplainerIllustration} alt="Explicacion visual de un MVP" />
         <p className="dt-modal-lead">
           Un MVP no es un producto de mala calidad. Es la solucion minima necesaria
-          para validar una hipotesis y obtener aprendizaje.
+          para validar una hipotesis y aprender antes de invertir mas recursos.
         </p>
+        <section className="dt-mvp-comparison" aria-label="Comparacion entre producto completo y MVP">
+          <article>
+            <h3>Producto completo</h3>
+            <ul>
+              <li>Redisenar toda la plataforma.</li>
+              <li>Crear una aplicacion movil.</li>
+              <li>Integrar pagos avanzados.</li>
+              <li>Automatizar todo el proceso.</li>
+            </ul>
+          </article>
+          <article>
+            <h3>MVP</h3>
+            <ul>
+              <li>Mostrar costos claros.</li>
+              <li>Reducir pasos criticos.</li>
+              <li>Agregar una confirmacion visible.</li>
+              <li>Probar si disminuye la friccion del usuario.</li>
+            </ul>
+          </article>
+        </section>
         <dl>
           {concepts.map(([term, description]) => (
             <div key={term}><dt>{term}</dt><dd>{description}</dd></div>

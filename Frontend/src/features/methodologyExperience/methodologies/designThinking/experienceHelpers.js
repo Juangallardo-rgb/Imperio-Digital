@@ -360,23 +360,180 @@ export function buildStrategySummary(ideas) {
   return `La cartera priorizada combina ${list}. Estas ideas se seleccionan para responder al problema definido y equilibrar impacto, esfuerzo, viabilidad y uso responsable de recursos antes de pasar a prototipo.`;
 }
 
+const prototypeModuleTypeLabels = {
+  prototypefeature: "Funcionalidad del MVP",
+  userflowstep: "Paso del flujo",
+  validationmessage: "Mensaje de validacion",
+  trustsignal: "Senal de confianza",
+  datainput: "Entrada de datos",
+  confirmationstep: "Confirmacion",
+  supportelement: "Soporte al usuario",
+};
+
+const learningLabels = {
+  claridad: "claridad",
+  clarity: "claridad",
+  confianza: "confianza",
+  trust: "confianza",
+  friccion: "reduccion de friccion",
+  friction: "reduccion de friccion",
+  rapidez: "rapidez",
+  speed: "rapidez",
+  confirmacion: "confirmacion",
+  confirmation: "confirmacion",
+  satisfaccion: "satisfaccion",
+  satisfaction: "satisfaccion",
+  conversion: "conversion",
+  abandono: "reduccion de abandono",
+  abandonment: "reduccion de abandono",
+};
+
+function uniqueStrings(values) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [])
+      .filter((value) => typeof value === "string" && value.trim())
+      .map((value) => value.trim())
+  )];
+}
+
+function formatReadableList(values) {
+  const list = uniqueStrings(values);
+
+  if (list.length === 0) return "la hipotesis priorizada";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} y ${list[1]}`;
+
+  return `${list.slice(0, -1).join(", ")} y ${list.at(-1)}`;
+}
+
+function getLearningItems(values) {
+  return uniqueStrings(values)
+    .map((value) => learningLabels[normalizeText(value)])
+    .filter(Boolean);
+}
+
+function getPositiveEstimate(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+export function getPrototypeModuleTypeLabel(optionType) {
+  return prototypeModuleTypeLabels[normalizeText(optionType)] || "Modulo del MVP";
+}
+
+export function getEffectiveMvpLimit(modules, fallback = 3) {
+  const availableModules = (Array.isArray(modules) ? modules : [])
+    .filter((module) => Number(module?.id) > 0);
+
+  if (availableModules.length === 0) return 0;
+
+  const configuredLimits = availableModules
+    .map((module) => Number(module?.maxSelections))
+    .filter((limit) => Number.isFinite(limit) && limit > 0);
+  const requestedLimit = configuredLimits.length > 0
+    ? Math.max(...configuredLimits)
+    : Number(fallback) > 0
+      ? Math.floor(Number(fallback))
+      : 3;
+
+  return Math.min(requestedLimit, availableModules.length);
+}
+
+export function getMvpScope(moduleCount) {
+  const count = Math.max(0, Number(moduleCount) || 0);
+
+  if (count === 0) {
+    return {
+      label: "Sin construir",
+      description: "Agrega pocos modulos para crear una primera prueba.",
+      tone: "empty",
+    };
+  }
+  if (count <= 3) {
+    return {
+      label: "Enfocado",
+      description: "El alcance se mantiene pequeno y comprobable.",
+      tone: "focused",
+    };
+  }
+  if (count <= 5) {
+    return {
+      label: "Amplio",
+      description: "Revisa si todos los modulos son necesarios para la primera prueba.",
+      tone: "wide",
+    };
+  }
+
+  return {
+    label: "Riesgo de sobreconstruccion",
+    description: "Este MVP puede ser demasiado amplio para una primera prueba.",
+    tone: "overbuilt",
+  };
+}
+
+export function getMvpLearningLabel(modules) {
+  const selectedModules = Array.isArray(modules) ? modules : [];
+  const learningItems = uniqueStrings(
+    selectedModules.flatMap((module) => module?.learningItems || [])
+  );
+
+  if (learningItems.length > 0) {
+    return `Aprendizaje esperado: ${formatReadableList(learningItems)}.`;
+  }
+  if (selectedModules.length === 0) return "Aprendizaje esperado: por definir.";
+  if (selectedModules.length === 1) return "Aprendizaje limitado: enfoca la prueba en una sola senal.";
+  if (selectedModules.length <= 3) return "Aprendizaje enfocado: podras comprobar una hipotesis concreta.";
+
+  return "Aprendizaje amplio: revisa si el MVP conserva un alcance comprobable.";
+}
+
+export function getMvpResourceSummary(modules) {
+  const selectedModules = Array.isArray(modules) ? modules : [];
+  const hasCostEstimate = selectedModules.length > 0 &&
+    selectedModules.every((module) => module.hasCostEstimate);
+  const hasTimeEstimate = selectedModules.length > 0 &&
+    selectedModules.every((module) => module.hasTimeEstimate);
+
+  return {
+    cost: hasCostEstimate
+      ? selectedModules.reduce((total, module) => total + module.cost, 0)
+      : null,
+    time: hasTimeEstimate
+      ? selectedModules.reduce((total, module) => total + module.timeCost, 0)
+      : null,
+    risk: selectedModules.reduce((total, module) => total + module.riskImpact, 0),
+  };
+}
+
 export function createPrototypeModule(option) {
   const tags = Array.isArray(option?.tags) ? option.tags : [];
   const impacts = option?.impacts && typeof option.impacts === "object"
     ? Object.keys(option.impacts)
     : [];
+  const learningItems = getLearningItems([...tags, ...impacts]);
+  const cost = getPositiveEstimate(option?.cost);
+  const timeCost = getPositiveEstimate(option?.timeCost);
+  const riskImpact = Number(option?.riskImpact) || 0;
 
   return {
     id: Number(option?.id),
     text: String(option?.text || ""),
-    optionType: String(option?.optionType || "Modulo"),
-    tags: tags.filter((tag) => typeof tag === "string" && tag.trim()),
-    impactKeys: impacts.filter((key) => typeof key === "string" && key.trim()),
-    cost: Number(option?.cost) || 0,
-    timeCost: Number(option?.timeCost) || 0,
-    riskImpact: Number(option?.riskImpact) || 0,
-    expectedImpactLevel: String(option?.expectedImpactLevel || ""),
-    expectedViabilityLevel: String(option?.expectedViabilityLevel || ""),
+    typeLabel: getPrototypeModuleTypeLabel(option?.optionType),
+    tags: uniqueStrings(tags),
+    impactKeys: uniqueStrings(impacts),
+    learningItems,
+    validationFocus: learningItems.length > 0
+      ? `Comprobar si mejora ${formatReadableList(learningItems)}.`
+      : "Comprobar una parte clave de la hipotesis priorizada.",
+    cost,
+    timeCost,
+    riskImpact,
+    hasCostEstimate: cost > 0,
+    hasTimeEstimate: timeCost > 0,
+    maxSelections: Number(option?.maxSelections) || 0,
+    impactLevel: normalizeLevel(option?.expectedImpactLevel),
+    effortLevel: normalizeLevel(option?.expectedEffortLevel),
+    viabilityLevel: normalizeLevel(option?.expectedViabilityLevel),
   };
 }
 
@@ -384,10 +541,15 @@ export function buildMvpSummary(modules) {
   const selectedModules = Array.isArray(modules) ? modules : [];
 
   if (selectedModules.length === 0) {
-    return "El lienzo del MVP aun no contiene modulos seleccionados.";
+    return "El lienzo del MVP aun no contiene modulos seleccionados. Agrega al menos un modulo para construir una version comprobable.";
   }
 
-  return `MVP propuesto con ${selectedModules.length} modulo(s): ${selectedModules.map((module) => module.text).join(" | ")}`;
+  const learningItems = uniqueStrings(
+    selectedModules.flatMap((module) => module?.learningItems || [])
+  );
+  const focus = formatReadableList(learningItems);
+
+  return `Este MVP incluye ${selectedModules.length} modulo(s) enfocados en validar ${focus}. Los modulos seleccionados permiten comprobar la hipotesis sin construir el producto completo.`;
 }
 
 export function createTestCard(option) {

@@ -65,7 +65,10 @@ function ExperienceShell({
     currentPhaseKey === "empatizar";
   const usesFocusedDesignThinkingContinuity =
     model.methodology.code === "DesignThinking" &&
-    ["definir", "idear"].includes(currentPhaseKey);
+    ["definir", "idear", "prototipar"].includes(currentPhaseKey);
+  const usesPrototypeMvpSummary =
+    model.methodology.code === "DesignThinking" &&
+    currentPhaseKey === "prototipar";
   const displayedSelectionLimit = getDisplayedSelectionLimit(
     model,
     currentPhaseKey
@@ -185,7 +188,7 @@ function ExperienceShell({
             ))}
           </section>
 
-          {!phaseFeedback && (
+          {!phaseFeedback && !usesPrototypeMvpSummary && (
             <section className="experience-decision-summary">
               <h2>Decision actual</h2>
               <dl>
