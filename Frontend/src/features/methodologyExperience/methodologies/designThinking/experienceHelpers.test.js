@@ -7,6 +7,7 @@ import {
   buildMvpSummary,
   buildProblemPreview,
   buildStrategySummary,
+  buildTestPlan,
   cleanSentencePart,
   createEvidenceCard,
   createPrototypeModule,
@@ -15,11 +16,13 @@ import {
   getEffectiveDefinitionLimit,
   getEffectiveIdeaLimit,
   getEffectiveMvpLimit,
+  getEffectiveTestLimit,
   getEvidenceGuidance,
   getDefinitionCue,
   getIdeaLevelLabel,
   getIdeaProfile,
   getIdeaQuadrant,
+  getKpiSignal,
   getMvpLearningLabel,
   getMvpResourceSummary,
   getMvpScope,
@@ -28,6 +31,7 @@ import {
   getPortfolioViabilityLabel,
   getPrototypeModuleTypeLabel,
   getTraceForPhase,
+  groupTestPlan,
 } from "./experienceHelpers.js";
 import {
   getScenarioExperienceStatus,
@@ -307,6 +311,44 @@ test("orienta el alcance del MVP sin afectar la evaluacion", () => {
   assert.equal(getMvpScope(6).label, "Riesgo de sobreconstruccion");
 });
 
+test("interpreta metricas como senales sin revelar una respuesta correcta", () => {
+  assert.deepEqual(
+    getKpiSignal({ key: "abandonment", label: "Abandono", value: 35 }),
+    {
+      label: "Senal de friccion",
+      description: "El abandono sigue siendo alto y puede indicar obstaculos en el flujo.",
+      tone: "attention",
+    }
+  );
+  assert.equal(
+    getKpiSignal({ key: "satisfaction", label: "Satisfaccion", value: 61 }).label,
+    "Aceptable, pero mejorable"
+  );
+  assert.equal(
+    getKpiSignal({ key: "purchaseTime", label: "Tiempo compra", value: 6 }).label,
+    "Proceso todavia largo"
+  );
+});
+
+test("construye un plan de iteracion agrupado y limita los hallazgos reales", () => {
+  const cards = [
+    createTestCard({ id: 1, text: "El abandono continua durante el pago", maxSelections: 6 }),
+    createTestCard({ id: 2, text: "La confirmacion genera confianza", tags: ["trust"], maxSelections: 6 }),
+    createTestCard({ id: 3, text: "La conversion sigue baja", maxSelections: 6 }),
+  ];
+  const actions = { 1: "Modificar", 2: "Mantener", 3: "Volver a probar" };
+  const plan = groupTestPlan(cards, actions);
+
+  assert.equal(getEffectiveTestLimit(cards, 6), 3);
+  assert.equal(getEffectiveTestLimit([cards[0]], 6), 1);
+  assert.equal(getEffectiveTestLimit([], 6), 0);
+  assert.deepEqual(plan.Mantener.map((card) => card.id), [2]);
+  assert.deepEqual(plan.Modificar.map((card) => card.id), [1]);
+  assert.deepEqual(plan["Volver a probar"].map((card) => card.id), [3]);
+  assert.match(buildTestPlan(cards, actions), /La siguiente iteracion se enfocara en/);
+  assert.match(buildTestPlan(cards, actions), /senales observadas durante la prueba del MVP/);
+});
+
 test("distingue un escenario V2 completo de uno heredado sin metadata", () => {
   const phaseSettings = [
     "Empatizar",
@@ -350,6 +392,17 @@ test("usa la actividad generica cuando la fase actual del escenario antiguo no t
     methodology: { code: "DesignThinking" },
     phaseOrder: [{ name: "Empatizar" }],
     phase: { name: "Empatizar" },
+    options: [],
+  });
+
+  assert.equal(compatibility.useGenericActivity, true);
+});
+
+test("mantiene un fallback seguro cuando Evaluar no tiene hallazgos", () => {
+  const compatibility = resolveLegacyScenarioExperience({
+    methodology: { code: "DesignThinking" },
+    phaseOrder: [{ name: "Evaluar" }],
+    phase: { name: "Evaluar" },
     options: [],
   });
 

@@ -552,6 +552,96 @@ export function buildMvpSummary(modules) {
   return `Este MVP incluye ${selectedModules.length} modulo(s) enfocados en validar ${focus}. Los modulos seleccionados permiten comprobar la hipotesis sin construir el producto completo.`;
 }
 
+export const ITERATION_ACTIONS = Object.freeze([
+  "Mantener",
+  "Modificar",
+  "Eliminar",
+  "Volver a probar",
+]);
+
+function getTestCardInterpretation(lens) {
+  if (lens === "Problema observado") {
+    return "Puede indicar friccion que conviene revisar en la siguiente iteracion.";
+  }
+  if (lens === "Hallazgo positivo") {
+    return "Muestra un aspecto que podria conservarse mientras se sigue validando.";
+  }
+  if (lens === "Indicador de prueba") {
+    return "Aporta una senal para contrastar la hipotesis con evidencia.";
+  }
+
+  return "Necesita mas evidencia antes de decidir un cambio definitivo.";
+}
+
+function getIterationAction(action) {
+  return ITERATION_ACTIONS.includes(action) ? action : "Volver a probar";
+}
+
+export function getEffectiveTestLimit(cards, configuredMax) {
+  const availableCards = (Array.isArray(cards) ? cards : [])
+    .filter((card) => Number(card?.id) > 0);
+
+  if (availableCards.length === 0) return 0;
+
+  const configuredLimits = availableCards
+    .map((card) => Number(card?.maxSelections))
+    .filter((limit) => Number.isFinite(limit) && limit > 0);
+  const fromPhase = Number(configuredMax);
+  const requestedLimit = configuredLimits.length > 0
+    ? Math.max(...configuredLimits)
+    : Number.isFinite(fromPhase) && fromPhase > 0
+      ? Math.floor(fromPhase)
+      : availableCards.length;
+
+  return Math.min(requestedLimit, availableCards.length);
+}
+
+export function getKpiSignal(kpi) {
+  const text = normalizeText(`${kpi?.key || ""} ${kpi?.label || ""}`);
+  const value = Number(kpi?.value);
+
+  if (!Number.isFinite(value)) {
+    return {
+      label: "Senal por interpretar",
+      description: "Revisa este valor junto con los hallazgos de prueba.",
+      tone: "neutral",
+    };
+  }
+  if (containsAny(text, ["abandono", "abandonment"])) {
+    return value >= 30
+      ? { label: "Senal de friccion", description: "El abandono sigue siendo alto y puede indicar obstaculos en el flujo.", tone: "attention" }
+      : { label: "Abandono controlado", description: "La salida del flujo se mantiene en un nivel que puedes seguir observando.", tone: "positive" };
+  }
+  if (containsAny(text, ["conversion", "conversi"])) {
+    return value <= 5
+      ? { label: "Oportunidad de mejora", description: "La conversion es baja y conviene revisar los pasos criticos.", tone: "attention" }
+      : { label: "Senal de avance", description: "La conversion muestra una respuesta que vale la pena seguir validando.", tone: "positive" };
+  }
+  if (containsAny(text, ["satisfaccion", "satisfaction"])) {
+    return value >= 75
+      ? { label: "Senal positiva", description: "La satisfaccion es alta y puede justificar mantener algunos elementos.", tone: "positive" }
+      : value >= 60
+        ? { label: "Aceptable, pero mejorable", description: "La experiencia funciona en parte, pero aun tiene espacio para mejorar.", tone: "neutral" }
+        : { label: "Experiencia por mejorar", description: "La satisfaccion indica que conviene revisar la propuesta con cuidado.", tone: "attention" };
+  }
+  if (containsAny(text, ["tiempo", "time"])) {
+    return value >= 5
+      ? { label: "Proceso todavia largo", description: "El tiempo observado puede revelar pasos que necesitan simplificarse.", tone: "attention" }
+      : { label: "Proceso agil", description: "El tiempo observado es una senal favorable que puedes seguir comprobando.", tone: "positive" };
+  }
+  if (containsAny(text, ["adopcion", "adoption"])) {
+    return value < 60
+      ? { label: "Adopcion en desarrollo", description: "La adopcion aun necesita apoyo y nuevas pruebas con usuarios.", tone: "neutral" }
+      : { label: "Adopcion favorable", description: "La adopcion muestra una respuesta positiva que vale la pena sostener.", tone: "positive" };
+  }
+
+  return {
+    label: "Senal para revisar",
+    description: "Usa este valor junto con los hallazgos para orientar la siguiente iteracion.",
+    tone: "neutral",
+  };
+}
+
 export function createTestCard(option) {
   const tags = Array.isArray(option?.tags) ? option.tags : [];
   const text = String(option?.text || "");
@@ -571,17 +661,40 @@ export function createTestCard(option) {
     text,
     lens,
     tags: tags.filter((tag) => typeof tag === "string" && tag.trim()),
+    interpretation: getTestCardInterpretation(lens),
+    maxSelections: Number(option?.maxSelections) || 0,
   };
+}
+
+export function groupTestPlan(cards, actions) {
+  const groups = Object.fromEntries(
+    ITERATION_ACTIONS.map((action) => [action, []])
+  );
+
+  (Array.isArray(cards) ? cards : []).forEach((card) => {
+    groups[getIterationAction(actions?.[card.id])].push(card);
+  });
+
+  return groups;
 }
 
 export function buildTestPlan(cards, actions) {
   const selectedCards = Array.isArray(cards) ? cards : [];
 
   if (selectedCards.length === 0) {
-    return "Aun no has definido acciones para la siguiente iteracion.";
+    return "Aun no has agregado hallazgos al plan. Elige una accion para los resultados de prueba mas importantes y agregalos a la siguiente iteracion.";
   }
 
-  return selectedCards
-    .map((card) => `${actions?.[card.id] || "Volver a probar"}: ${card.text}`)
-    .join(" | ");
+  const groups = groupTestPlan(selectedCards, actions);
+  const verbs = {
+    Mantener: "mantener",
+    Modificar: "modificar",
+    Eliminar: "eliminar",
+    "Volver a probar": "volver a probar",
+  };
+  const decisions = ITERATION_ACTIONS
+    .filter((action) => groups[action].length > 0)
+    .map((action) => `${verbs[action]} ${formatReadableList(groups[action].map((card) => card.text))}`);
+
+  return `La siguiente iteracion se enfocara en ${formatReadableList(decisions)}. Esta decision se apoya en las senales observadas durante la prueba del MVP.`;
 }
