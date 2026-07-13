@@ -246,10 +246,17 @@ export function normalizeLevel(value) {
   return "";
 }
 
-export function getIdeaProfile(option) {
-  const impact = normalizeLevel(option?.expectedImpactLevel);
-  const effort = normalizeLevel(option?.expectedEffortLevel);
-  const viability = normalizeLevel(option?.expectedViabilityLevel);
+export function getIdeaProfile(option, manualRatings = {}) {
+  const impact = normalizeLevel(
+    manualRatings?.impact ?? option?.expectedImpactLevel
+  );
+  const effort = normalizeLevel(
+    manualRatings?.effort ?? option?.expectedEffortLevel
+  );
+  const viability = normalizeLevel(
+    manualRatings?.viability ?? option?.expectedViabilityLevel
+  );
+  const hasImpactAndEffort = Boolean(impact && effort);
   const canUsePriorityMatrix =
     ["high", "low"].includes(impact) &&
     ["high", "low"].includes(effort);
@@ -259,6 +266,9 @@ export function getIdeaProfile(option) {
     effort,
     viability,
     quadrant: canUsePriorityMatrix ? `${impact}-${effort}` : "unclassified",
+    hasImpactAndEffort,
+    needsManualEvaluation: !hasImpactAndEffort,
+    isIntermediate: hasImpactAndEffort && !canUsePriorityMatrix,
     needsReview: !canUsePriorityMatrix,
   };
 }
@@ -293,9 +303,13 @@ export function getEffectiveIdeaLimit(options, fallback = 3) {
   return Math.min(configuredMax, availableCount);
 }
 
-export function getPortfolioImpactLabel(ideas) {
+function getProfileForIdea(idea, profiles) {
+  return profiles?.[idea?.id] || getIdeaProfile(idea);
+}
+
+export function getPortfolioImpactLabel(ideas, profiles) {
   const impacts = (Array.isArray(ideas) ? ideas : [])
-    .map((idea) => getIdeaProfile(idea).impact)
+    .map((idea) => getProfileForIdea(idea, profiles).impact)
     .filter(Boolean);
 
   if (impacts.length === 0) return "Por revisar";
@@ -303,6 +317,18 @@ export function getPortfolioImpactLabel(ideas) {
   if (impacts.every((impact) => impact === "low")) return "Bajo";
 
   return "Mixto";
+}
+
+export function getPortfolioViabilityLabel(ideas, profiles) {
+  const viability = (Array.isArray(ideas) ? ideas : [])
+    .map((idea) => getProfileForIdea(idea, profiles).viability)
+    .filter(Boolean);
+
+  if (viability.length === 0) return "Por revisar";
+  if (viability.every((level) => level === "high")) return "Alta";
+  if (viability.every((level) => level === "low")) return "Baja";
+
+  return "Mixta";
 }
 
 export function getPortfolioTags(ideas) {

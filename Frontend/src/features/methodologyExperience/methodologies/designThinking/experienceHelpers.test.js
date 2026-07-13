@@ -20,6 +20,7 @@ import {
   getIdeaQuadrant,
   getPortfolioImpactLabel,
   getPortfolioTags,
+  getPortfolioViabilityLabel,
   getTraceForPhase,
 } from "./experienceHelpers.js";
 import {
@@ -135,6 +136,9 @@ test("normaliza niveles de Idear y deriva una ubicacion sin inventar extremos", 
       effort: "low",
       viability: "medium",
       quadrant: "high-low",
+      hasImpactAndEffort: true,
+      needsManualEvaluation: false,
+      isIntermediate: false,
       needsReview: false,
     }
   );
@@ -144,6 +148,37 @@ test("normaliza niveles de Idear y deriva una ubicacion sin inventar extremos", 
   );
   assert.equal(getIdeaLevelLabel("", "viability"), "Por revisar");
   assert.equal(getIdeaLevelLabel("medium", "viability"), "Media");
+});
+
+test("mantiene ideas antiguas pendientes hasta que se valoran manualmente", () => {
+  const legacyIdea = {
+    id: 8,
+    expectedImpactLevel: "",
+    expectedEffortLevel: null,
+    expectedViabilityLevel: undefined,
+  };
+
+  assert.deepEqual(
+    getIdeaProfile(legacyIdea),
+    {
+      impact: "",
+      effort: "",
+      viability: "",
+      quadrant: "unclassified",
+      hasImpactAndEffort: false,
+      needsManualEvaluation: true,
+      isIntermediate: false,
+      needsReview: true,
+    }
+  );
+  assert.equal(
+    getIdeaProfile(legacyIdea, {
+      impact: "ALTO",
+      effort: "low",
+      viability: "Media",
+    }).quadrant,
+    "high-low"
+  );
 });
 
 test("limita los votos de Idear a las ideas disponibles", () => {
@@ -160,8 +195,8 @@ test("limita los votos de Idear a las ideas disponibles", () => {
 
 test("resume la cartera de Idear como una estrategia y solo usa tags visibles", () => {
   const ideas = [
-    { text: "Simplificar el flujo", expectedImpactLevel: "Alto", tags: ["claridad"] },
-    { text: "Confirmaciones automaticas", expectedImpactLevel: "Bajo", tags: ["claridad", "confianza"] },
+    { id: 1, text: "Simplificar el flujo", expectedImpactLevel: "Alto", tags: ["claridad"] },
+    { id: 2, text: "Confirmaciones automaticas", expectedImpactLevel: "Bajo", tags: ["claridad", "confianza"] },
   ];
   const summary = buildStrategySummary(ideas);
 
@@ -170,6 +205,13 @@ test("resume la cartera de Idear como una estrategia y solo usa tags visibles", 
   assert.equal(summary.includes(" | "), false);
   assert.equal(getPortfolioImpactLabel(ideas), "Mixto");
   assert.deepEqual(getPortfolioTags(ideas), ["claridad", "confianza"]);
+  assert.equal(
+    getPortfolioViabilityLabel(ideas, {
+      1: { viability: "high" },
+      2: { viability: "medium" },
+    }),
+    "Mixta"
+  );
 });
 
 test("adapta modulos y pruebas sin campos de correccion", () => {
