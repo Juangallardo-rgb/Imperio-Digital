@@ -222,6 +222,43 @@ namespace SimuladorApi.Services
             });
         }
 
+        public ScenarioOptionCoverage GetOptionCoverage(
+            IReadOnlyCollection<ScenarioOption> options,
+            IReadOnlyCollection<ScenarioPhaseSetting> enabledPhases,
+            int minimumOptionsPerPhase = 1,
+            bool requireCorrectOption = false)
+        {
+            var coverage = new ScenarioOptionCoverage
+            {
+                ExpectedPhases = enabledPhases
+                    .OrderBy(phase => phase.PhaseOrder)
+                    .Select(phase => phase.PhaseName)
+                    .ToList(),
+                TotalCorrect = options.Count(option => option.IsCorrect),
+                TotalDistractors = options.Count(option => !option.IsCorrect)
+            };
+
+            foreach (var phase in enabledPhases.OrderBy(phase => phase.PhaseOrder))
+            {
+                var phaseOptions = options
+                    .Where(option => IsOptionMappedToPhase(option, phase))
+                    .ToList();
+
+                coverage.OptionCountByPhase[phase.PhaseName] = phaseOptions.Count;
+
+                if (phaseOptions.Count < minimumOptionsPerPhase ||
+                    (requireCorrectOption && !phaseOptions.Any(option => option.IsCorrect)))
+                {
+                    coverage.MissingPhases.Add(phase.PhaseName);
+                }
+            }
+
+            coverage.InvalidOptionCount = options.Count(option =>
+                !enabledPhases.Any(phase => IsOptionMappedToPhase(option, phase)));
+
+            return coverage;
+        }
+
         public bool IsOptionMappedToPhase(ScenarioOption option, ScenarioPhaseSetting phase)
         {
             if (phase.MethodologyPhaseId.HasValue &&
@@ -389,5 +426,20 @@ namespace SimuladorApi.Services
                     .Where(token => !MinorWords.Contains(token))
             );
         }
+    }
+
+    public sealed class ScenarioOptionCoverage
+    {
+        public List<string> ExpectedPhases { get; init; } = new();
+
+        public Dictionary<string, int> OptionCountByPhase { get; init; } = new();
+
+        public List<string> MissingPhases { get; init; } = new();
+
+        public int TotalCorrect { get; init; }
+
+        public int TotalDistractors { get; init; }
+
+        public int InvalidOptionCount { get; set; }
     }
 }

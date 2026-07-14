@@ -84,11 +84,10 @@ namespace SimuladorApi.Services
                 .Where(option => option.ScenarioId == scenario.Id)
                 .ToListAsync();
 
-            var phasesWithoutOptions = enabledPhases
-                .Where(phase => !scenarioOptions.Any(option =>
-                    _scenarioPhaseMappingService.IsOptionMappedToPhase(option, phase)))
-                .Select(phase => phase.PhaseName)
-                .ToList();
+            var coverage = _scenarioPhaseMappingService.GetOptionCoverage(
+                scenarioOptions,
+                enabledPhases);
+            var phasesWithoutOptions = coverage.MissingPhases;
 
             if (phasesWithoutOptions.Any())
             {

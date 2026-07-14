@@ -3,6 +3,7 @@ using SimuladorApi.Data;
 using Microsoft.Extensions.Logging;
 using SimuladorApi.DTOs.DesignThinking;
 using SimuladorApi.Models;
+using System.Diagnostics;
 
 namespace SimuladorApi.Services
 {
@@ -323,11 +324,10 @@ namespace SimuladorApi.Services
             if (!scenario.Options.Any())
                 return (false, "El escenario debe tener opciones configuradas antes de publicarse.");
 
-            var phasesWithoutOptions = enabledPhases
-                .Where(phase => !scenario.Options.Any(option =>
-                    _scenarioPhaseMappingService.IsOptionMappedToPhase(option, phase)))
-                .Select(phase => phase.PhaseName)
-                .ToList();
+            var coverage = _scenarioPhaseMappingService.GetOptionCoverage(
+                scenario.Options,
+                enabledPhases);
+            var phasesWithoutOptions = coverage.MissingPhases;
 
             if (phasesWithoutOptions.Any())
                 return (false, $"Faltan opciones para estas fases: {string.Join(", ", phasesWithoutOptions)}.");
@@ -370,32 +370,77 @@ namespace SimuladorApi.Services
             if (!enabledPhases.Any())
                 return (false, "El escenario no tiene fases activas.");
 
-            List<ScenarioOption> aiOptions;
+            var previousOptionsCount = scenario.Options.Count;
+            var regenerationStopwatch = Stopwatch.StartNew();
 
-            try
+            _logger.LogInformation(
+                "[AI_OPTIONS] Starting regeneration. ScenarioId={ScenarioId}, Methodology={Methodology}, MethodologyName={MethodologyName}, PreviousOptions={PreviousOptions}",
+                scenarioId,
+                scenario.Methodology,
+                GetMethodologyName(scenario.Methodology),
+                previousOptionsCount);
+
+            var generationResult = await _aiScenarioContentService
+                .GenerateOptionsWithDiagnosticsAsync(scenario);
+
+            if (!generationResult.Success)
             {
-                aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
+                _logger.LogWarning(
+                    "[AI_OPTIONS] Generation failed and previous options were preserved. ScenarioId={ScenarioId}, Methodology={Methodology}, ErrorCode={ErrorCode}, TechnicalReason={TechnicalReason}, ExpectedPhases={ExpectedPhases}, ReceivedPhases={ReceivedPhases}, MissingPhases={MissingPhases}, PreviousOptions={PreviousOptions}, DurationMs={DurationMs}, OpenRouterResponded={OpenRouterResponded}, OpenRouterStatusCode={OpenRouterStatusCode}",
+                    scenarioId,
+                    scenario.Methodology,
+                    generationResult.ErrorCode,
+                    generationResult.TechnicalReason,
+                    string.Join(", ", generationResult.ExpectedPhases),
+                    string.Join(", ", generationResult.ReceivedPhases),
+                    string.Join(", ", generationResult.MissingPhases),
+                    previousOptionsCount,
+                    generationResult.Duration.TotalMilliseconds,
+                    generationResult.OpenRouterResponded,
+                    generationResult.OpenRouterStatusCode);
+
+                return (false, generationResult.UserMessage);
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "No se pudieron regenerar opciones con IA para el escenario {ScenarioId}.",
-                    scenarioId);
-                return (false, "No se pudieron generar las opciones con IA. Intenta nuevamente en unos minutos.");
-            }
+
+            var aiOptions = generationResult.Options;
 
             var allOptionsMapped = aiOptions.All(option =>
                 _scenarioPhaseMappingService.TryMapOptionToEnabledPhase(option, enabledPhases));
+            var minimumOptionsPerPhase = string.Equals(
+                scenario.Methodology,
+                "BPM",
+                StringComparison.OrdinalIgnoreCase)
+                ? 3
+                : 1;
+            var coverage = _scenarioPhaseMappingService.GetOptionCoverage(
+                aiOptions,
+                enabledPhases,
+                minimumOptionsPerPhase,
+                requireCorrectOption: true);
 
             if (!allOptionsMapped ||
-                !_scenarioPhaseMappingService.AreOptionsValidForEnabledPhases(aiOptions, enabledPhases))
+                !_scenarioPhaseMappingService.AreOptionsValidForEnabledPhases(aiOptions, enabledPhases) ||
+                coverage.MissingPhases.Any() ||
+                coverage.InvalidOptionCount > 0)
             {
                 _logger.LogWarning(
-                    "La IA devolvio opciones que no se pudieron mapear a todas las fases del escenario {ScenarioId}.",
-                    scenarioId);
+                    "[AI_OPTIONS] Rejecting generation. ScenarioId={ScenarioId}, ErrorCode={ErrorCode}, GeneratedOptions={GeneratedOptions}, ValidOptions={ValidOptions}, ExpectedPhases={ExpectedPhases}, ReceivedPhases={ReceivedPhases}, MissingPhases={MissingPhases}, InvalidOptions={InvalidOptions}, PreviousOptions={PreviousOptions}",
+                    scenarioId,
+                    string.Equals(scenario.Methodology, "BPM", StringComparison.OrdinalIgnoreCase)
+                        ? AiOptionsGenerationErrorCodes.BpmMissingPhases
+                        : AiOptionsGenerationErrorCodes.AiInvalidSchema,
+                    aiOptions.Count,
+                    aiOptions.Count - coverage.InvalidOptionCount,
+                    string.Join(", ", coverage.ExpectedPhases),
+                    string.Join(", ", generationResult.ReceivedPhases),
+                    string.Join(", ", coverage.MissingPhases),
+                    coverage.InvalidOptionCount,
+                    previousOptionsCount);
                 return (
                     false,
-                    "La IA respondió, pero las opciones generadas no coinciden con las fases de esta metodología. No se reemplazaron las opciones actuales."
+                    string.Equals(scenario.Methodology, "BPM", StringComparison.OrdinalIgnoreCase)
+                        ? "La IA no generó opciones válidas para todas las fases BPM. Intenta regenerar nuevamente."
+                        : "La IA respondió con opciones incompletas. Intenta regenerar nuevamente."
                 );
             }
 
@@ -419,11 +464,27 @@ namespace SimuladorApi.Services
 
                 await transaction.CommitAsync();
             }
-            catch
+            catch (Exception exception)
             {
                 await transaction.RollbackAsync();
-                throw;
+                _logger.LogError(
+                    exception,
+                    "[AI_OPTIONS] Database save failed. ScenarioId={ScenarioId}, ErrorCode={ErrorCode}, PreviousOptions={PreviousOptions}, GeneratedOptions={GeneratedOptions}",
+                    scenarioId,
+                    AiOptionsGenerationErrorCodes.DbSaveError,
+                    previousOptionsCount,
+                    aiOptions.Count);
+                return (false, "No se pudieron guardar las opciones generadas. Las opciones anteriores se conservaron.");
             }
+
+            _logger.LogInformation(
+                "[AI_OPTIONS] Regeneration committed. ScenarioId={ScenarioId}, PreviousOptions={PreviousOptions}, GeneratedOptions={GeneratedOptions}, Correct={CorrectOptions}, Distractors={DistractorOptions}, DurationMs={DurationMs}",
+                scenarioId,
+                previousOptionsCount,
+                aiOptions.Count,
+                aiOptions.Count(option => option.IsCorrect),
+                aiOptions.Count(option => !option.IsCorrect),
+                regenerationStopwatch.Elapsed.TotalMilliseconds);
 
             return (true, $"Opciones regeneradas con IA correctamente para {GetMethodologyName(scenario.Methodology)}.");
         }
