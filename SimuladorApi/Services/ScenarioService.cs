@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SimuladorApi.Data;
+using Microsoft.Extensions.Logging;
 using SimuladorApi.DTOs.DesignThinking;
 using SimuladorApi.Models;
 
@@ -10,15 +11,21 @@ namespace SimuladorApi.Services
         private readonly AppDbContext _context;
         private readonly AiScenarioContentService _aiScenarioContentService;
         private readonly ScenarioOptionTemplateService _scenarioOptionTemplateService;
+        private readonly ScenarioPhaseMappingService _scenarioPhaseMappingService;
+        private readonly ILogger<ScenarioService> _logger;
 
         public ScenarioService(
             AppDbContext context,
             AiScenarioContentService aiScenarioContentService,
-            ScenarioOptionTemplateService scenarioOptionTemplateService)
+            ScenarioOptionTemplateService scenarioOptionTemplateService,
+            ScenarioPhaseMappingService scenarioPhaseMappingService,
+            ILogger<ScenarioService> logger)
         {
             _context = context;
             _aiScenarioContentService = aiScenarioContentService;
             _scenarioOptionTemplateService = scenarioOptionTemplateService;
+            _scenarioPhaseMappingService = scenarioPhaseMappingService;
+            _logger = logger;
         }
 
         public async Task<ScenarioDetailDto> CreateDesignThinkingScenarioAsync(
@@ -246,15 +253,24 @@ namespace SimuladorApi.Services
             if (scenario == null)
                 return (false, "Escenario no encontrado.");
 
-            var phaseExists = scenario.PhaseSettings.Any(p => p.PhaseName == request.PhaseName);
+            await _scenarioPhaseMappingService.RepairScenarioOptionPhaseMappingsAsync(scenario);
 
-            if (!phaseExists)
+            var enabledPhases = scenario.PhaseSettings
+                .Where(phase => phase.IsEnabled)
+                .ToList();
+            var phase = _scenarioPhaseMappingService.ResolveEnabledPhase(
+                request.PhaseName,
+                enabledPhases
+            );
+
+            if (phase == null)
                 return (false, "La fase no pertenece a la metodología de este escenario.");
 
             var option = new ScenarioOption
             {
                 ScenarioId = scenarioId,
-                PhaseName = request.PhaseName,
+                PhaseName = phase.PhaseName,
+                MethodologyPhaseId = phase.MethodologyPhaseId,
                 OptionType = request.OptionType,
                 Text = request.Text,
                 Score = request.Score,
@@ -289,6 +305,8 @@ namespace SimuladorApi.Services
             if (scenario == null)
                 return (false, "Escenario no encontrado.");
 
+            await _scenarioPhaseMappingService.RepairScenarioOptionPhaseMappingsAsync(scenario);
+
             var enabledPhases = scenario.PhaseSettings
                 .Where(p => p.IsEnabled)
                 .OrderBy(p => p.PhaseOrder)
@@ -306,8 +324,9 @@ namespace SimuladorApi.Services
                 return (false, "El escenario debe tener opciones configuradas antes de publicarse.");
 
             var phasesWithoutOptions = enabledPhases
-                .Where(p => !scenario.Options.Any(o => NormalizeText(o.PhaseName) == NormalizeText(p.PhaseName)))
-                .Select(p => p.PhaseName)
+                .Where(phase => !scenario.Options.Any(option =>
+                    _scenarioPhaseMappingService.IsOptionMappedToPhase(option, phase)))
+                .Select(phase => phase.PhaseName)
                 .ToList();
 
             if (phasesWithoutOptions.Any())
@@ -341,13 +360,14 @@ namespace SimuladorApi.Services
             if (scenario == null)
                 return (false, "Escenario no encontrado.");
 
-            var enabledPhaseNames = scenario.PhaseSettings
+            await _scenarioPhaseMappingService.RepairScenarioOptionPhaseMappingsAsync(scenario);
+
+            var enabledPhases = scenario.PhaseSettings
                 .Where(p => p.IsEnabled)
                 .OrderBy(p => p.PhaseOrder)
-                .Select(p => p.PhaseName)
                 .ToList();
 
-            if (!enabledPhaseNames.Any())
+            if (!enabledPhases.Any())
                 return (false, "El escenario no tiene fases activas.");
 
             List<ScenarioOption> aiOptions;
@@ -355,15 +375,24 @@ namespace SimuladorApi.Services
             try
             {
                 aiOptions = await _aiScenarioContentService.GenerateOptionsForScenarioAsync(scenario);
-                NormalizeAiOptionPhaseNames(aiOptions, enabledPhaseNames);
             }
             catch (Exception ex)
             {
-                return (false, $"No se pudieron generar opciones con IA. Detalle: {ex.Message}");
+                _logger.LogWarning(ex,
+                    "No se pudieron regenerar opciones con IA para el escenario {ScenarioId}.",
+                    scenarioId);
+                return (false, "No se pudieron generar las opciones con IA. Intenta nuevamente en unos minutos.");
             }
 
-            if (!AreOptionsValidForScenario(aiOptions, enabledPhaseNames))
+            var allOptionsMapped = aiOptions.All(option =>
+                _scenarioPhaseMappingService.TryMapOptionToEnabledPhase(option, enabledPhases));
+
+            if (!allOptionsMapped ||
+                !_scenarioPhaseMappingService.AreOptionsValidForEnabledPhases(aiOptions, enabledPhases))
             {
+                _logger.LogWarning(
+                    "La IA devolvio opciones que no se pudieron mapear a todas las fases del escenario {ScenarioId}.",
+                    scenarioId);
                 return (
                     false,
                     "La IA respondió, pero las opciones generadas no coinciden con las fases de esta metodología. No se reemplazaron las opciones actuales."
@@ -408,24 +437,23 @@ namespace SimuladorApi.Services
             if (scenario == null)
                 throw new Exception("Escenario no encontrado para generar opciones.");
 
-            var enabledPhaseNames = scenario.PhaseSettings
+            var enabledPhases = scenario.PhaseSettings
                 .Where(p => p.IsEnabled)
                 .OrderBy(p => p.PhaseOrder)
-                .Select(p => p.PhaseName)
                 .ToList();
 
-            if (!enabledPhaseNames.Any())
+            if (!enabledPhases.Any())
                 throw new Exception("El escenario no tiene fases activas para generar opciones.");
 
             var baseOptions = _scenarioOptionTemplateService
                 .GenerateBaseOptions(scenario.Id, methodologyCode)
-                .Where(option => enabledPhaseNames.Any(phaseName =>
-                    NormalizeText(option.PhaseName) == NormalizeText(phaseName)))
                 .ToList();
 
-            NormalizeAiOptionPhaseNames(baseOptions, enabledPhaseNames);
+            var allOptionsMapped = baseOptions.All(option =>
+                _scenarioPhaseMappingService.TryMapOptionToEnabledPhase(option, enabledPhases));
 
-            if (!AreOptionsValidForScenario(baseOptions, enabledPhaseNames))
+            if (!allOptionsMapped ||
+                !_scenarioPhaseMappingService.AreOptionsValidForEnabledPhases(baseOptions, enabledPhases))
             {
                 throw new Exception("No se pudieron preparar las opciones iniciales del escenario.");
             }

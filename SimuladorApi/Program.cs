@@ -98,6 +98,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // =====================================================
 
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<ScenarioPhaseMappingService>();
 builder.Services.AddScoped<ScenarioService>();
 builder.Services.AddScoped<ScoringService>();
 builder.Services.AddScoped<KpiSimulationService>();

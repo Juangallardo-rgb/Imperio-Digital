@@ -14,6 +14,7 @@ namespace SimuladorApi.Services
         private readonly AiFeedbackService _aiFeedbackService;
         private readonly KpiSimulationService _kpiSimulationService;
         private readonly ScenarioOptionTemplateService _scenarioOptionTemplateService;
+        private readonly ScenarioPhaseMappingService _scenarioPhaseMappingService;
         private readonly IRealtimeNotificationService _realtime;
         private readonly ILogger<SimulationService> _logger;
 
@@ -23,6 +24,7 @@ namespace SimuladorApi.Services
             AiFeedbackService aiFeedbackService,
             KpiSimulationService kpiSimulationService,
             ScenarioOptionTemplateService scenarioOptionTemplateService,
+            ScenarioPhaseMappingService scenarioPhaseMappingService,
             IRealtimeNotificationService realtime,
             ILogger<SimulationService> logger)
         {
@@ -31,6 +33,7 @@ namespace SimuladorApi.Services
             _aiFeedbackService = aiFeedbackService;
             _kpiSimulationService = kpiSimulationService;
             _scenarioOptionTemplateService = scenarioOptionTemplateService;
+            _scenarioPhaseMappingService = scenarioPhaseMappingService;
             _realtime = realtime;
             _logger = logger;
         }
@@ -67,6 +70,8 @@ namespace SimuladorApi.Services
             if (!compatibility.Success)
                 return (false, compatibility.Message, 0);
 
+            await _scenarioPhaseMappingService.RepairScenarioOptionPhaseMappingsAsync(scenario);
+
             var enabledPhases = scenario.PhaseSettings
                 .Where(p => p.IsEnabled)
                 .OrderBy(p => p.PhaseOrder)
@@ -75,14 +80,13 @@ namespace SimuladorApi.Services
             if (!enabledPhases.Any())
                 return (false, "El escenario no tiene fases configuradas.", 0);
 
-            var optionPhaseNames = await _context.ScenarioOptions
+            var scenarioOptions = await _context.ScenarioOptions
                 .Where(option => option.ScenarioId == scenario.Id)
-                .Select(option => option.PhaseName)
                 .ToListAsync();
 
             var phasesWithoutOptions = enabledPhases
-                .Where(phase => !optionPhaseNames.Any(optionPhaseName =>
-                    NormalizePhaseName(optionPhaseName) == NormalizePhaseName(phase.PhaseName)))
+                .Where(phase => !scenarioOptions.Any(option =>
+                    _scenarioPhaseMappingService.IsOptionMappedToPhase(option, phase)))
                 .Select(phase => phase.PhaseName)
                 .ToList();
 

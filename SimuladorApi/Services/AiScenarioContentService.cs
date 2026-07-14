@@ -34,9 +34,16 @@ namespace SimuladorApi.Services
                 "DesignThinking",
                 StringComparison.OrdinalIgnoreCase
             );
+            var isBpm = string.Equals(
+                scenario.Methodology,
+                "BPM",
+                StringComparison.OrdinalIgnoreCase
+            );
             var prompt = isDesignThinking
                 ? BuildDesignThinkingV2Prompt(scenario)
-                : BuildPrompt(scenario);
+                : isBpm
+                    ? BuildBpmPrompt(scenario)
+                    : BuildPrompt(scenario);
 
             var requestBody = new
             {
@@ -48,7 +55,9 @@ namespace SimuladorApi.Services
                         role = "system",
                         content = isDesignThinking
                             ? "Eres un experto academico en Design Thinking y diseno de simuladores universitarios. Devuelves exclusivamente JSON valido, completo y evaluable."
-                            : "Eres un experto académico en Design Thinking, transformación digital y diseño de simuladores educativos. Generas opciones coherentes, evaluables y contextualizadas para casos de estudio."
+                            : isBpm
+                                ? "Eres un experto academico en Business Process Management y diseno de simuladores universitarios. Devuelves exclusivamente JSON valido, completo y evaluable."
+                                : "Eres un experto académico en Design Thinking, transformación digital y diseño de simuladores educativos. Generas opciones coherentes, evaluables y contextualizadas para casos de estudio."
                     },
                     new
                     {
@@ -206,6 +215,67 @@ EJEMPLO DE FORMA:
     ""maxSelections"": 3,
     ""expectedImpactLevel"": ""Alto"",
     ""expectedEffortLevel"": ""Bajo"",
+    ""expectedViabilityLevel"": ""Alta""
+  }}
+]";
+        }
+
+        private static string BuildBpmPrompt(Scenario scenario)
+        {
+            return $@"
+Genera opciones estructuradas para una simulacion universitaria de Business Process Management (BPM).
+
+CASO:
+Titulo: {scenario.Title}
+Descripcion: {scenario.Description}
+Empresa: {scenario.CompanyType}
+Problema: {scenario.Problem}
+Usuario objetivo: {scenario.TargetUser}
+Restricciones: {scenario.Constraints}
+Dificultad: {scenario.Difficulty}
+
+Devuelve SOLO un arreglo JSON valido. No uses markdown ni texto adicional.
+Cada objeto debe tener exactamente estas propiedades:
+phaseName, optionType, text, isCorrect, impactJson, tagsJson, orderIndex, cost, timeCost, riskImpact, maxSelections, expectedImpactLevel, expectedEffortLevel, expectedViabilityLevel.
+
+Usa exactamente estas cinco fases BPM y no inventes nombres alternativos:
+1. Identificar proceso
+2. Modelar proceso actual
+3. Analizar cuellos de botella
+4. Rediseñar proceso
+5. Monitorear indicadores
+
+REGLAS:
+- Genera al menos 3 opciones por cada fase, con al menos una correcta y un distractor evaluable.
+- Todas las opciones deben describir decisiones concretas y coherentes con el caso.
+- impactJson debe ser una cadena JSON valida. Usa ""{{}}"" cuando no aplique.
+- tagsJson debe ser una cadena JSON valida con palabras clave utiles. Usa ""[]"" cuando no aplique.
+- cost, timeCost y riskImpact deben ser numeros realistas.
+- No devuelvas fases de Design Thinking ni nombres en ingles para phaseName.
+
+TIPOS PERMITIDOS POR FASE:
+- Identificar proceso: ProcessEvidence o ProcessSelection.
+- Modelar proceso actual: CurrentProcessStep o CurrentProcess.
+- Analizar cuellos de botella: Bottleneck.
+- Rediseñar proceso: ProcessImprovement o Redesign.
+- Monitorear indicadores: Kpi o KpiSelection.
+
+EJEMPLO DE FORMA:
+[
+  {{
+    ""phaseName"": ""Analizar cuellos de botella"",
+    ""optionType"": ""Bottleneck"",
+    ""text"": ""..."",
+    ""isCorrect"": true,
+    ""impactJson"": ""{{}}"",
+    ""tagsJson"": ""[]"",
+    ""orderIndex"": 1,
+    ""cost"": 5,
+    ""timeCost"": 1,
+    ""riskImpact"": 2,
+    ""maxSelections"": 2,
+    ""expectedImpactLevel"": ""Alto"",
+    ""expectedEffortLevel"": ""Medio"",
     ""expectedViabilityLevel"": ""Alta""
   }}
 ]";
