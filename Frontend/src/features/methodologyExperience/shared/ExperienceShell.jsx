@@ -66,9 +66,35 @@ function ExperienceShell({
   const usesFocusedDesignThinkingContinuity =
     model.methodology.code === "DesignThinking" &&
     ["definir", "idear", "prototipar", "evaluar"].includes(currentPhaseKey);
+  const usesFocusedDigitalMaturityContinuity =
+    model.methodology.code === "DigitalMaturity" &&
+    ["diagnosticoinicial", "evaluarcapacidades"].includes(currentPhaseKey);
   const usesPhaseSpecificDecisionSummary =
-    model.methodology.code === "DesignThinking" &&
-    ["prototipar", "evaluar"].includes(currentPhaseKey);
+    (model.methodology.code === "DesignThinking" &&
+      ["prototipar", "evaluar"].includes(currentPhaseKey)) ||
+    usesFocusedDigitalMaturityContinuity;
+  const briefingValues = {
+    company: model.scenario.companyType || (
+      usesFocusedDigitalMaturityContinuity
+        ? "Organizacion del caso"
+        : "No especificada"
+    ),
+    problem: model.scenario.problem || (
+      usesFocusedDigitalMaturityContinuity
+        ? "Situacion digital por analizar"
+        : "No especificado"
+    ),
+    targetUser: model.scenario.targetUser || (
+      usesFocusedDigitalMaturityContinuity
+        ? "Personas afectadas por el caso"
+        : "No especificado"
+    ),
+    constraints: model.scenario.constraints || (
+      usesFocusedDigitalMaturityContinuity
+        ? "Condiciones para el analisis"
+        : "No especificadas"
+    ),
+  };
   const displayedSelectionLimit = getDisplayedSelectionLimit(
     model,
     currentPhaseKey
@@ -113,19 +139,19 @@ function ExperienceShell({
         <section className="experience-briefing" aria-label="Briefing del escenario">
           <article>
             <span>Empresa</span>
-            <strong>{model.scenario.companyType || "No especificada"}</strong>
+            <strong>{briefingValues.company}</strong>
           </article>
           <article>
             <span>Problema</span>
-            <strong>{model.scenario.problem || "No especificado"}</strong>
+            <strong>{briefingValues.problem}</strong>
           </article>
           <article>
             <span>Usuario objetivo</span>
-            <strong>{model.scenario.targetUser || "No especificado"}</strong>
+            <strong>{briefingValues.targetUser}</strong>
           </article>
           <article>
             <span>Restricciones</span>
-            <strong>{model.scenario.constraints || "No especificadas"}</strong>
+            <strong>{briefingValues.constraints}</strong>
           </article>
         </section>
       )}
@@ -232,7 +258,7 @@ function ExperienceShell({
             </section>
           ) : (
             <>
-              {!usesFocusedDesignThinkingContinuity && previousDecisions.length > 0 && (
+              {!usesFocusedDesignThinkingContinuity && !usesFocusedDigitalMaturityContinuity && previousDecisions.length > 0 && (
                 <section className="experience-continuity" aria-label="Decisiones anteriores">
                   <span className="experience-eyebrow">Continuidad del caso</span>
                   <h2>Decisiones que ya condicionan esta fase</h2>

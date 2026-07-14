@@ -165,7 +165,7 @@ function DesignThinkingSimulationPage() {
   const submitPhase = async () => {
     if (!current) return;
 
-    if (selectedOptionIds.length === 0) {
+    if (selectedOptionIds.length === 0 && phaseOptions.length > 0) {
       setMessage("Selecciona al menos una opción antes de enviar la fase.");
       return;
     }
