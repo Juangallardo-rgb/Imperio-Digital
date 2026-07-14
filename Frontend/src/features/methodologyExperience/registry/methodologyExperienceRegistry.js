@@ -1,4 +1,5 @@
 import { normalizeExperienceKey } from "../engine/experienceContracts";
+import businessProcessManagementManifest from "../methodologies/businessProcessManagement/manifest";
 import digitalMaturityManifest from "../methodologies/digitalMaturity/manifest";
 import designThinkingManifest from "../methodologies/designThinking/manifest";
 
@@ -10,7 +11,7 @@ const legacyFallbackManifest = (methodologyCode) => ({
 
 export const methodologyExperienceRegistry = Object.freeze({
   DesignThinking: designThinkingManifest,
-  BPM: legacyFallbackManifest("BPM"),
+  BPM: businessProcessManagementManifest,
   DigitalMaturity: digitalMaturityManifest,
   LeanStartup: legacyFallbackManifest("LeanStartup"),
 });

@@ -113,14 +113,22 @@ function DesignThinkingSimulationPage() {
   }, [selectedOptions]);
 
   const maxSelections = useMemo(() => {
-    if (!phaseOptions.length) return 3;
+    if (!phaseOptions.length) return current?.methodologyCode === "BPM" ? 0 : 3;
 
     const configured = phaseOptions
       .map((option) => Number(option.maxSelections || 0))
       .filter((value) => value > 0);
 
+    if (current?.methodologyCode === "BPM") {
+      const configuredMax = configured.length > 0
+        ? Math.max(...configured)
+        : phaseOptions.length;
+
+      return Math.min(configuredMax || phaseOptions.length, phaseOptions.length);
+    }
+
     return configured.length > 0 ? Math.max(...configured) : 3;
-  }, [phaseOptions]);
+  }, [current?.methodologyCode, phaseOptions]);
 
   const toggleOption = (optionId) => {
     setMessage("");

@@ -75,10 +75,18 @@ function ExperienceShell({
       "plandetransformacion",
       "seguimientodemadurez",
     ].includes(currentPhaseKey);
+  const usesFocusedBpmProcessAnalysis =
+    model.methodology.code === "BPM" &&
+    [
+      "identificarproceso",
+      "modelarprocesoactual",
+      "analizarcuellosdebotella",
+    ].includes(currentPhaseKey);
   const usesPhaseSpecificDecisionSummary =
     (model.methodology.code === "DesignThinking" &&
       ["prototipar", "evaluar"].includes(currentPhaseKey)) ||
-    usesFocusedDigitalMaturityContinuity;
+    usesFocusedDigitalMaturityContinuity ||
+    usesFocusedBpmProcessAnalysis;
   const briefingValues = {
     company: model.scenario.companyType || (
       usesFocusedDigitalMaturityContinuity
