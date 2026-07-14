@@ -83,7 +83,7 @@ namespace SimuladorApi.Services
 
             var cleanJson = CleanJson(aiText);
 
-            var aiOptions = JsonSerializer.Deserialize<List<AiScenarioOptionDto>>(
+            var aiOptions = JsonSerializer.Deserialize<List<AiGeneratedScenarioOptionDto>>(
                 cleanJson,
                 new JsonSerializerOptions
                 {
@@ -114,9 +114,7 @@ namespace SimuladorApi.Services
                 Cost = option.Cost ?? 0,
                 TimeCost = option.TimeCost ?? 0,
                 RiskImpact = option.RiskImpact ?? 0,
-                TagsJson = option.Tags?.Any() == true
-                    ? JsonSerializer.Serialize(option.Tags)
-                    : string.Empty,
+                TagsJson = SerializeTags(option),
                 MaxSelections = option.MaxSelections ?? 0,
                 ExpectedImpactLevel = option.ExpectedImpactLevel ?? string.Empty,
                 ExpectedEffortLevel = option.ExpectedEffortLevel ?? string.Empty,
@@ -214,7 +212,7 @@ EJEMPLO DE FORMA:
         }
 
         private static void ValidateDesignThinkingV2Options(
-            List<AiScenarioOptionDto> options,
+            List<AiGeneratedScenarioOptionDto> options,
             Scenario scenario)
         {
             var expectedPhases = scenario.PhaseSettings
@@ -256,7 +254,7 @@ EJEMPLO DE FORMA:
 
         private static void ValidatePhaseMetadata(
             string phaseName,
-            List<AiScenarioOptionDto> options)
+            List<AiGeneratedScenarioOptionDto> options)
         {
             var phase = NormalizePhase(phaseName);
             var types = options
@@ -289,12 +287,34 @@ EJEMPLO DE FORMA:
                 throw new Exception("Evaluar requiere KPIs o pruebas.");
         }
 
-        private static string SerializeImpact(AiScenarioOptionDto option)
+        private static string SerializeImpact(AiGeneratedScenarioOptionDto option)
         {
-            if (option.Impact.HasValue && option.Impact.Value.ValueKind == JsonValueKind.Object)
-                return option.Impact.Value.GetRawText();
+            var impact = NormalizeJsonField(option.Impact);
 
-            return option.ImpactJson ?? string.Empty;
+            return string.IsNullOrWhiteSpace(impact)
+                ? NormalizeJsonField(option.ImpactJson)
+                : impact;
+        }
+
+        private static string SerializeTags(AiGeneratedScenarioOptionDto option)
+        {
+            if (option.Tags?.Any() == true)
+                return JsonSerializer.Serialize(option.Tags);
+
+            return NormalizeJsonField(option.TagsJson);
+        }
+
+        private static string NormalizeJsonField(JsonElement? element)
+        {
+            if (!element.HasValue ||
+                element.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return string.Empty;
+            }
+
+            return element.Value.ValueKind == JsonValueKind.String
+                ? element.Value.GetString() ?? string.Empty
+                : element.Value.GetRawText();
         }
 
         private static string NormalizePhase(string value)
@@ -339,6 +359,8 @@ REGLAS:
 - Las opciones deben servir para evaluar al estudiante.
 - En Idear, las soluciones correctas deben tener ImpactJson.
 - En Evaluar, los KPIs deben estar relacionados con el problema.
+- impactJson debe ser una cadena JSON, como ""{{}}"" cuando no aplique.
+- tagsJson debe ser una cadena JSON, como ""[]"" cuando no aplique.
 - Devuelve SOLO JSON válido.
 - No uses markdown.
 - No escribas explicaciones fuera del JSON.
@@ -350,7 +372,8 @@ FORMATO EXACTO:
     ""optionType"": ""Evidence"",
     ""text"": ""..."",
     ""isCorrect"": true,
-    ""impactJson"": """",
+    ""impactJson"": ""{{}}"",
+    ""tagsJson"": ""[]"",
     ""orderIndex"": 1
   }}
 ]
@@ -381,8 +404,7 @@ Evaluar:
 - 2 KPI distractores
 
 ImpactJson para soluciones:
-Debe tener esta estructura:
-{{""cartAbandonment"": -5, ""conversionRate"": 0.8, ""satisfaction"": 7, ""purchaseTime"": -0.5}}
+Debe contener un objeto JSON con cartAbandonment, conversionRate, satisfaction y purchaseTime.
 
 Si el caso no es e-commerce, adapta los impactos conceptualmente pero conserva esas mismas claves para que el motor de KPIs funcione.
 ";
@@ -432,7 +454,7 @@ Si el caso no es e-commerce, adapta los impactos conceptualmente pero conserva e
             return clean;
         }
 
-        private class AiScenarioOptionDto
+        private class AiGeneratedScenarioOptionDto
         {
             public string PhaseName { get; set; } = string.Empty;
 
@@ -442,11 +464,13 @@ Si el caso no es e-commerce, adapta los impactos conceptualmente pero conserva e
 
             public bool IsCorrect { get; set; }
 
-            public string ImpactJson { get; set; } = string.Empty;
+            public JsonElement? ImpactJson { get; set; }
 
             public JsonElement? Impact { get; set; }
 
             public List<string> Tags { get; set; } = new();
+
+            public JsonElement? TagsJson { get; set; }
 
             public decimal? Cost { get; set; }
 
