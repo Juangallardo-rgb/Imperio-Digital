@@ -91,6 +91,26 @@ namespace SimuladorApi.Controllers
         }
 
         [Authorize(Roles = "Docente")]
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteScenario(int id)
+        {
+            var teacherId = GetUserId();
+            var result = await _scenarioService.DeleteScenarioAsync(id, teacherId);
+
+            return result.Status switch
+            {
+                ScenarioDeletionStatus.Deleted => Ok(result.Message),
+                ScenarioDeletionStatus.NotFound => NotFound(result.Message),
+                ScenarioDeletionStatus.Forbidden => StatusCode(
+                    StatusCodes.Status403Forbidden,
+                    result.Message),
+                _ => StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    result.Message)
+            };
+        }
+
+        [Authorize(Roles = "Docente")]
         [HttpPost("{id}/options")]
         public async Task<IActionResult> AddOption(int id, CreateScenarioOptionDto request)
         {

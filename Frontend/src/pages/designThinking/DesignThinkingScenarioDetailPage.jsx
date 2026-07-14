@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
 import { getScenarioExperienceStatus } from "../../features/methodologyExperience/adapters/legacyScenarioAdapter";
 import { isMethodologyExperienceV2Enabled } from "../../features/methodologyExperience/engine/featureFlags";
+import ScenarioDeletionConfirmModal from "../../components/ScenarioDeletionConfirmModal";
 
 function DesignThinkingScenarioDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const isExperienceV2Enabled = isMethodologyExperienceV2Enabled();
 
   const [scenario, setScenario] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadScenario = async () => {
     setLoading(true);
@@ -104,6 +108,34 @@ function DesignThinkingScenarioDetailPage() {
     }
   };
 
+  const deleteScenario = async () => {
+    if (isDeleting) return;
+
+    setIsDeleting(true);
+    setMessage("");
+
+    try {
+      const token = getToken();
+      const response = await api.delete(`/design-thinking/scenarios/${id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      navigate("/design-thinking/scenarios", {
+        replace: true,
+        state: {
+          message: response.data || "Escenario eliminado correctamente.",
+        },
+      });
+    } catch (error) {
+      console.error("Error eliminando escenario:", error);
+      setMessage(getScenarioDeletionErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   useEffect(() => {
     loadScenario();
   }, [id]);
@@ -189,6 +221,15 @@ function DesignThinkingScenarioDetailPage() {
               disabled={isRegenerating}
             >
               {isRegenerating ? "Generando con IA..." : "Regenerar opciones con IA"}
+            </button>
+
+            <button
+              type="button"
+              className="scenario-action-danger"
+              onClick={() => setShowDeleteConfirmation(true)}
+              disabled={isDeleting}
+            >
+              Eliminar escenario
             </button>
 
             <Link className="scenario-action-link" to="/design-thinking/scenarios">
@@ -398,6 +439,15 @@ function DesignThinkingScenarioDetailPage() {
           ))}
         </div>
       </section>
+
+      {showDeleteConfirmation && (
+        <ScenarioDeletionConfirmModal
+          scenarioTitle={scenario.title || scenario.name || "Escenario sin nombre"}
+          isDeleting={isDeleting}
+          onCancel={() => setShowDeleteConfirmation(false)}
+          onConfirm={deleteScenario}
+        />
+      )}
     </div>
   );
 }
@@ -453,6 +503,18 @@ function formatDate(date) {
   } catch {
     return "Sin fecha";
   }
+}
+
+function getScenarioDeletionErrorMessage(error) {
+  const status = error.response?.status;
+
+  if (status === 404) return "Escenario no encontrado.";
+  if (status === 403) return "No tienes permiso para eliminar este escenario.";
+  if (status === 500) return "No se pudo eliminar el escenario. Intenta nuevamente.";
+
+  return typeof error.response?.data === "string"
+    ? error.response.data
+    : "No hubo respuesta del backend.";
 }
 
 export default DesignThinkingScenarioDetailPage;

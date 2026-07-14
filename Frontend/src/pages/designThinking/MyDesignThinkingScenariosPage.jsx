@@ -1,19 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
+import ScenarioDeletionConfirmModal from "../../components/ScenarioDeletionConfirmModal";
 
 function MyDesignThinkingScenariosPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [scenarios, setScenarios] = useState([]);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => location.state?.message || "");
   const [loading, setLoading] = useState(true);
+  const [scenarioToDelete, setScenarioToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [methodologyFilter, setMethodologyFilter] = useState("Todas");
   const [statusFilter, setStatusFilter] = useState("Todos");
 
-  const loadScenarios = async () => {
+  const loadScenarios = async ({ resetMessage = true } = {}) => {
     setLoading(true);
-    setMessage("");
+    if (resetMessage) {
+      setMessage("");
+    }
 
     try {
       const token = getToken();
@@ -39,8 +46,43 @@ function MyDesignThinkingScenariosPage() {
   };
 
   useEffect(() => {
-    loadScenarios();
+    const hasSuccessMessage = Boolean(location.state?.message);
+    loadScenarios({ resetMessage: !hasSuccessMessage });
+
+    if (hasSuccessMessage) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
   }, []);
+
+  const deleteScenario = async () => {
+    if (!scenarioToDelete || isDeleting) return;
+
+    setIsDeleting(true);
+    setMessage("");
+
+    try {
+      const token = getToken();
+      const response = await api.delete(
+        `/design-thinking/scenarios/${scenarioToDelete.id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setScenarios((currentScenarios) =>
+        currentScenarios.filter((scenario) => scenario.id !== scenarioToDelete.id)
+      );
+      setScenarioToDelete(null);
+      setMessage(response.data || "Escenario eliminado correctamente.");
+    } catch (error) {
+      console.error("Error eliminando escenario:", error);
+      setMessage(getScenarioDeletionErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const stats = useMemo(() => {
     const total = scenarios.length;
@@ -257,17 +299,36 @@ function MyDesignThinkingScenariosPage() {
                     <strong>{formatDate(scenario.createdAt)}</strong>
                   </div>
 
-                  <Link
-                    className="scenario-detail-button"
-                    to={`/design-thinking/scenarios/${scenario.id}`}
-                  >
-                    Ver detalle
-                  </Link>
+                  <div className="scenario-card-actions">
+                    <Link
+                      className="scenario-detail-button"
+                      to={`/design-thinking/scenarios/${scenario.id}`}
+                    >
+                      Ver detalle
+                    </Link>
+
+                    <button
+                      type="button"
+                      className="scenario-delete-button"
+                      onClick={() => setScenarioToDelete(scenario)}
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               </article>
             );
           })}
         </section>
+      )}
+
+      {scenarioToDelete && (
+        <ScenarioDeletionConfirmModal
+          scenarioTitle={scenarioToDelete.title || scenarioToDelete.name || "Escenario sin nombre"}
+          isDeleting={isDeleting}
+          onCancel={() => setScenarioToDelete(null)}
+          onConfirm={deleteScenario}
+        />
       )}
     </div>
   );
@@ -315,6 +376,18 @@ function formatDate(date) {
   } catch {
     return "Sin fecha";
   }
+}
+
+function getScenarioDeletionErrorMessage(error) {
+  const status = error.response?.status;
+
+  if (status === 404) return "Escenario no encontrado.";
+  if (status === 403) return "No tienes permiso para eliminar este escenario.";
+  if (status === 500) return "No se pudo eliminar el escenario. Intenta nuevamente.";
+
+  return typeof error.response?.data === "string"
+    ? error.response.data
+    : "No hubo respuesta del backend.";
 }
 
 export default MyDesignThinkingScenariosPage;

@@ -13,6 +13,7 @@ namespace SimuladorApi.Services
         private readonly AiScenarioContentService _aiScenarioContentService;
         private readonly ScenarioOptionTemplateService _scenarioOptionTemplateService;
         private readonly ScenarioPhaseMappingService _scenarioPhaseMappingService;
+        private readonly IRealtimeNotificationService _realtime;
         private readonly ILogger<ScenarioService> _logger;
 
         public ScenarioService(
@@ -20,12 +21,14 @@ namespace SimuladorApi.Services
             AiScenarioContentService aiScenarioContentService,
             ScenarioOptionTemplateService scenarioOptionTemplateService,
             ScenarioPhaseMappingService scenarioPhaseMappingService,
+            IRealtimeNotificationService realtime,
             ILogger<ScenarioService> logger)
         {
             _context = context;
             _aiScenarioContentService = aiScenarioContentService;
             _scenarioOptionTemplateService = scenarioOptionTemplateService;
             _scenarioPhaseMappingService = scenarioPhaseMappingService;
+            _realtime = realtime;
             _logger = logger;
         }
 
@@ -203,6 +206,164 @@ namespace SimuladorApi.Services
             await _context.SaveChangesAsync();
 
             return await GetScenarioDetailAsync(scenarioId, teacherId, true);
+        }
+
+        public async Task<ScenarioDeletionResult> DeleteScenarioAsync(
+            int scenarioId,
+            int teacherId)
+        {
+            var scenario = await _context.Scenarios
+                .FirstOrDefaultAsync(s => s.Id == scenarioId);
+
+            if (scenario == null)
+            {
+                return new ScenarioDeletionResult
+                {
+                    Status = ScenarioDeletionStatus.NotFound,
+                    Message = "Escenario no encontrado."
+                };
+            }
+
+            if (scenario.CreatedByUserId != teacherId)
+            {
+                _logger.LogWarning(
+                    "Scenario deletion forbidden. ScenarioId={ScenarioId}, TeacherId={TeacherId}, OwnerId={OwnerId}",
+                    scenarioId,
+                    teacherId,
+                    scenario.CreatedByUserId);
+
+                return new ScenarioDeletionResult
+                {
+                    Status = ScenarioDeletionStatus.Forbidden,
+                    Message = "No tienes permiso para eliminar este escenario."
+                };
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                var courseScenarios = await _context.CourseScenarios
+                    .Where(courseScenario => courseScenario.ScenarioId == scenarioId)
+                    .ToListAsync();
+
+                var simulationAttempts = await _context.SimulationAttempts
+                    .Where(attempt => attempt.ScenarioId == scenarioId)
+                    .ToListAsync();
+                var attemptIds = simulationAttempts.Select(attempt => attempt.Id).ToList();
+
+                var phaseResponses = await _context.SimulationPhaseResponses
+                    .Where(response => attemptIds.Contains(response.SimulationAttemptId))
+                    .ToListAsync();
+                var phaseResponseIds = phaseResponses.Select(response => response.Id).ToList();
+
+                var simulationAnswers = await _context.SimulationAnswers
+                    .Where(answer => phaseResponseIds.Contains(answer.SimulationPhaseResponseId))
+                    .ToListAsync();
+
+                var simulationKpiResults = await _context.SimulationKpiResults
+                    .Where(result => attemptIds.Contains(result.SimulationAttemptId))
+                    .ToListAsync();
+
+                var legacySimulations = await _context.Simulations
+                    .Where(simulation => simulation.ScenarioId == scenarioId)
+                    .ToListAsync();
+                var legacySimulationIds = legacySimulations.Select(simulation => simulation.Id).ToList();
+
+                var scenarioVariables = await _context.ScenarioVariables
+                    .Where(variable => variable.ScenarioId == scenarioId)
+                    .ToListAsync();
+                var scenarioVariableIds = scenarioVariables.Select(variable => variable.Id).ToList();
+
+                var simulationVariableValues = await _context.SimulationVariableValues
+                    .Where(value =>
+                        legacySimulationIds.Contains(value.SimulationId) ||
+                        scenarioVariableIds.Contains(value.ScenarioVariableId))
+                    .ToListAsync();
+
+                var scenarioOptions = await _context.ScenarioOptions
+                    .Where(option => option.ScenarioId == scenarioId)
+                    .ToListAsync();
+
+                var phaseSettings = await _context.ScenarioPhaseSettings
+                    .Where(setting => setting.ScenarioId == scenarioId)
+                    .ToListAsync();
+                var phaseSettingIds = phaseSettings.Select(setting => setting.Id).ToList();
+
+                var phaseCriteria = await _context.PhaseCriteriaSettings
+                    .Where(criteria => phaseSettingIds.Contains(criteria.ScenarioPhaseSettingId))
+                    .ToListAsync();
+
+                _context.SimulationAnswers.RemoveRange(simulationAnswers);
+                _context.SimulationPhaseResponses.RemoveRange(phaseResponses);
+                _context.SimulationKpiResults.RemoveRange(simulationKpiResults);
+                _context.SimulationAttempts.RemoveRange(simulationAttempts);
+
+                _context.SimulationVariableValues.RemoveRange(simulationVariableValues);
+                _context.Simulations.RemoveRange(legacySimulations);
+
+                _context.CourseScenarios.RemoveRange(courseScenarios);
+                _context.ScenarioOptions.RemoveRange(scenarioOptions);
+                _context.PhaseCriteriaSettings.RemoveRange(phaseCriteria);
+                _context.ScenarioPhaseSettings.RemoveRange(phaseSettings);
+                _context.ScenarioVariables.RemoveRange(scenarioVariables);
+                _context.Scenarios.Remove(scenario);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                _logger.LogInformation(
+                    "Scenario deleted. ScenarioId={ScenarioId}, TeacherId={TeacherId}, Options={Options}, CourseAssignments={CourseAssignments}, Attempts={Attempts}, PhaseResponses={PhaseResponses}, Answers={Answers}, KpiResults={KpiResults}, LegacySimulations={LegacySimulations}, VariableValues={VariableValues}, PhaseSettings={PhaseSettings}, PhaseCriteria={PhaseCriteria}, Variables={Variables}",
+                    scenarioId,
+                    teacherId,
+                    scenarioOptions.Count,
+                    courseScenarios.Count,
+                    simulationAttempts.Count,
+                    phaseResponses.Count,
+                    simulationAnswers.Count,
+                    simulationKpiResults.Count,
+                    legacySimulations.Count,
+                    simulationVariableValues.Count,
+                    phaseSettings.Count,
+                    phaseCriteria.Count,
+                    scenarioVariables.Count);
+
+                try
+                {
+                    await Task.WhenAll(courseScenarios.Select(courseScenario =>
+                        _realtime.NotifyCourseScenariosChangedAsync(
+                            courseScenario.CourseId,
+                            scenarioId)));
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Scenario deletion completed but realtime notifications failed. ScenarioId={ScenarioId}",
+                        scenarioId);
+                }
+
+                return new ScenarioDeletionResult
+                {
+                    Status = ScenarioDeletionStatus.Deleted,
+                    Message = "Escenario eliminado correctamente."
+                };
+            }
+            catch (Exception exception)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(
+                    exception,
+                    "Scenario deletion failed and was rolled back. ScenarioId={ScenarioId}, TeacherId={TeacherId}",
+                    scenarioId,
+                    teacherId);
+
+                return new ScenarioDeletionResult
+                {
+                    Status = ScenarioDeletionStatus.Failed,
+                    Message = "No se pudo eliminar el escenario. Intenta nuevamente."
+                };
+            }
         }
 
         public async Task<(bool Success, string Message)> UpdatePhaseSettingsAsync(
