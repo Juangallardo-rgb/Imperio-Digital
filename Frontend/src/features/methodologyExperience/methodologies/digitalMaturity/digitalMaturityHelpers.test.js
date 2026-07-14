@@ -7,8 +7,16 @@ import {
   buildDiagnosisDraft,
   buildDiagnosisMap,
   buildDiagnosisSnapshot,
+  buildGapDraft,
+  buildGapPriorityMap,
+  buildMaturityContext,
+  buildRoadmap,
+  buildTrackingPanel,
   createCapabilityCard,
   createDiagnosisCard,
+  createGapCard,
+  createInitiativeCard,
+  createTrackingCard,
   getEffectiveSelectionLimit,
 } from "./digitalMaturityHelpers.js";
 
@@ -88,6 +96,65 @@ test("mantiene opciones antiguas disponibles para clasificacion manual", () => {
   assert.equal(diagnosisCard.dimension, "");
   assert.equal(capabilityCard.capability, "");
   assert.equal(getEffectiveSelectionLimit([diagnosisCard], 5), 1);
+});
+
+test("prioriza brechas sin revelar datos internos y usa el contexto previo", () => {
+  const context = buildMaturityContext([
+    {
+      phaseName: "Diagnostico inicial",
+      selectedTexts: ["Los procesos tienen tareas manuales."],
+      tags: ["processes", "manual-work"],
+    },
+    {
+      phaseName: "Evaluar capacidades",
+      selectedTexts: ["La automatizacion de procesos requiere fortalecimiento."],
+      tags: ["automation", "processes"],
+    },
+  ], ["Diagnostico inicial", "Evaluar capacidades"]);
+  const card = createGapCard({
+    id: 21,
+    text: "Priorizar brechas en la eficiencia operativa.",
+    tags: ["processes", "process-efficiency"],
+    score: 100,
+    isCorrect: true,
+  });
+  const classifications = { 21: { impact: "alta", urgency: "alta" } };
+  const priorityMap = buildGapPriorityMap([card], classifications);
+  const draft = buildGapDraft([card], classifications, context);
+
+  assert.equal(context.texts.length, 2);
+  assert.equal(card.dimension, "processes");
+  assert.equal(priorityMap.alta[0].urgency, "alta");
+  assert.match(draft, /Procesos/);
+  assert.equal("score" in card, false);
+  assert.equal("isCorrect" in card, false);
+});
+
+test("permite clasificar manualmente escenarios antiguos en las fases finales", () => {
+  const oldGap = createGapCard({ id: 31, text: "Revisar necesidades de transformacion." });
+  const initiative = createInitiativeCard({
+    id: 32,
+    text: "Construir un plan de datos para las decisiones.",
+    tags: ["data", "analytics"],
+    impacts: { effort: "Alta" },
+  });
+  const indicator = createTrackingCard({
+    id: 33,
+    text: "Observar la adopcion de las nuevas practicas digitales.",
+    tags: ["adoption"],
+  });
+  const manualGapMap = buildGapPriorityMap([oldGap], {});
+  const roadmap = buildRoadmap([initiative], { 32: { period: "short" } });
+  const tracking = buildTrackingPanel([indicator], { 33: { area: "adoption" } });
+
+  assert.equal(oldGap.dimension, "");
+  assert.equal(manualGapMap.media.length, 1);
+  assert.equal(initiative.dimension, "data");
+  assert.equal(initiative.effort, "alta");
+  assert.equal(roadmap.short[0].id, 32);
+  assert.equal(indicator.area, "adoption");
+  assert.equal(tracking.adoption[0].id, 33);
+  assert.equal(getEffectiveSelectionLimit([oldGap, initiative, indicator], 1), 1);
 });
 
 test("mantiene el contrato de envio sin clasificaciones locales", () => {

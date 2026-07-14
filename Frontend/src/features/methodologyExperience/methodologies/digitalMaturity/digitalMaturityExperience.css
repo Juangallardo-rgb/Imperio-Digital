@@ -56,7 +56,14 @@
 .dm-draft-summary,
 .dm-diagnosis-bridge,
 .dm-capability-workspace,
-.dm-capability-matrix {
+.dm-capability-matrix,
+.dm-gap-workspace,
+.dm-priority-board,
+.dm-roadmap-workspace,
+.dm-roadmap-board,
+.dm-tracking-workspace,
+.dm-tracking-board,
+.dm-context-bridge {
   border: 1px solid var(--app-border, #dbe3f0);
   border-radius: 8px;
   background: #ffffff;
@@ -159,7 +166,13 @@
 .dm-diagnosis-workspace,
 .dm-diagnosis-map,
 .dm-capability-workspace,
-.dm-capability-matrix { padding: 20px; }
+.dm-capability-matrix,
+.dm-gap-workspace,
+.dm-priority-board,
+.dm-roadmap-workspace,
+.dm-roadmap-board,
+.dm-tracking-workspace,
+.dm-tracking-board { padding: 20px; }
 
 .dm-panel-heading {
   display: flex;
@@ -173,14 +186,20 @@
 .dm-panel-heading p { max-width: 290px; margin: 0; color: var(--app-text-secondary, #5c6f92); font-size: 0.84rem; line-height: 1.45; text-align: right; }
 
 .dm-signal-grid,
-.dm-capability-grid {
+.dm-capability-grid,
+.dm-gap-grid,
+.dm-roadmap-card-grid,
+.dm-tracking-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .dm-signal-card,
-.dm-capability-card {
+.dm-capability-card,
+.dm-gap-card,
+.dm-roadmap-card,
+.dm-tracking-card {
   display: grid;
   gap: 13px;
   padding: 16px;
@@ -193,9 +212,15 @@
 }
 
 .dm-signal-card:hover,
-.dm-capability-card:hover { border-color: #9ab7e7; transform: translateY(-1px); }
+.dm-capability-card:hover,
+.dm-gap-card:hover,
+.dm-roadmap-card:hover,
+.dm-tracking-card:hover { border-color: #9ab7e7; transform: translateY(-1px); }
 .dm-signal-card.is-selected,
-.dm-capability-card.is-selected { border-color: #4f87db; background: #f7faff; box-shadow: 0 4px 12px rgba(32, 77, 154, 0.12); }
+.dm-capability-card.is-selected,
+.dm-gap-card.is-selected,
+.dm-roadmap-card.is-selected,
+.dm-tracking-card.is-selected { border-color: #4f87db; background: #f7faff; box-shadow: 0 4px 12px rgba(32, 77, 154, 0.12); }
 
 .dm-card-heading {
   display: flex;
@@ -216,8 +241,14 @@
 .dm-card-heading strong { color: #637491; font-size: 0.75rem; }
 .is-selected .dm-card-heading strong { color: #087a52; }
 .dm-signal-card > p,
-.dm-capability-card > p { margin: 0; color: var(--app-text, #102347); line-height: 1.5; }
-.dm-capability-card h4 { margin: 0; color: #173d78; font-size: 1.02rem; }
+.dm-capability-card > p,
+.dm-gap-card > p,
+.dm-roadmap-card > p,
+.dm-tracking-card > p { margin: 0; color: var(--app-text, #102347); line-height: 1.5; }
+.dm-capability-card h4,
+.dm-gap-card h4,
+.dm-roadmap-card h4,
+.dm-tracking-card h4 { margin: 0; color: #173d78; font-size: 1.02rem; }
 
 .dm-card-controls {
   display: grid;
@@ -273,7 +304,10 @@
 
 .dm-toggle-button { min-height: 40px; padding: 9px 12px; }
 .dm-signal-card.is-selected .dm-toggle-button,
-.dm-capability-card.is-selected .dm-toggle-button { color: #173d78; background: #ffffff; }
+.dm-capability-card.is-selected .dm-toggle-button,
+.dm-gap-card.is-selected .dm-toggle-button,
+.dm-roadmap-card.is-selected .dm-toggle-button,
+.dm-tracking-card.is-selected .dm-toggle-button { color: #173d78; background: #ffffff; }
 .dm-secondary-action { align-self: start; padding: 10px 13px; white-space: nowrap; }
 .dm-secondary-action:disabled { border-color: #cbd5e5; color: #8291a8; background: #edf1f7; cursor: not-allowed; }
 
@@ -376,6 +410,96 @@
 .dm-capability-matrix-grid article:nth-child(2) { border-top: 3px solid #4f87db; }
 .dm-capability-matrix-grid article:nth-child(3) { border-top: 3px solid #20a879; }
 
+.dm-context-bridge {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border-color: #bdd0f4;
+  background: #f5f8ff;
+}
+
+.dm-context-bridge h3 { margin: 5px 0 0; }
+.dm-context-bridge p { margin: 8px 0 0; color: var(--app-text-secondary, #5c6f92); line-height: 1.5; }
+.dm-context-bridge ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--app-text, #102347);
+  line-height: 1.45;
+}
+
+.dm-two-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dm-one-control { grid-template-columns: minmax(0, 1fr); }
+
+.dm-card-context {
+  padding: 10px;
+  border-left: 3px solid #779fd8;
+  color: #526784 !important;
+  background: #f8faff;
+  font-size: 0.86rem;
+}
+
+.dm-priority-board-grid,
+.dm-roadmap-board-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dm-priority-board-grid article,
+.dm-roadmap-board-grid article,
+.dm-tracking-board-grid article {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #d5e0f3;
+  border-radius: 7px;
+  background: #f9fbff;
+}
+
+.dm-priority-board-grid h4,
+.dm-roadmap-board-grid h4,
+.dm-tracking-board-grid h4 { margin: 0; color: #173d78; }
+
+.dm-priority-board-grid article > div,
+.dm-roadmap-board-grid article > div {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border-left: 3px solid #4f87db;
+  background: #ffffff;
+}
+
+.dm-priority-board-grid article p,
+.dm-roadmap-board-grid article p,
+.dm-tracking-board-grid article p { margin: 0; color: var(--app-text, #102347); line-height: 1.45; }
+.dm-priority-board-grid article span,
+.dm-roadmap-board-grid article span { color: #617491; font-size: 0.78rem; }
+.dm-priority-board-grid article:nth-child(1) { border-top: 3px solid #1d4f91; }
+.dm-priority-board-grid article:nth-child(2) { border-top: 3px solid #4f87db; }
+.dm-priority-board-grid article:nth-child(3) { border-top: 3px solid #8eaedc; }
+.dm-roadmap-board-grid article:nth-child(1) { border-top: 3px solid #1d4f91; }
+.dm-roadmap-board-grid article:nth-child(2) { border-top: 3px solid #4f87db; }
+.dm-roadmap-board-grid article:nth-child(3) { border-top: 3px solid #8eaedc; }
+
+.dm-tracking-board-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dm-tracking-board-grid article { align-content: start; }
+.dm-tracking-board-grid article:nth-child(1) { border-top: 3px solid #1d4f91; }
+.dm-tracking-board-grid article:nth-child(2) { border-top: 3px solid #376ec4; }
+.dm-tracking-board-grid article:nth-child(3) { border-top: 3px solid #5a8fda; }
+.dm-tracking-board-grid article:nth-child(4) { border-top: 3px solid #789fd1; }
+.dm-tracking-board-grid article:nth-child(5) { border-top: 3px solid #9ab6da; }
+.dm-indicator-count { color: #173d78; font-size: 1.55rem; line-height: 1; }
+.dm-indicator-count + span { color: #617491; font-size: 0.78rem; }
+.dm-tracking-board-grid ul { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--app-text, #102347); line-height: 1.4; }
+
 .dm-toggle-button:focus-visible,
 .dm-secondary-action:focus-visible,
 .dm-maturity-options button:focus-visible,
@@ -393,7 +517,10 @@
   .dm-action-guide,
   .dm-maturity-scale { grid-template-columns: 1fr; }
   .dm-diagnosis-map-grid,
-  .dm-capability-matrix-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-capability-matrix-grid,
+  .dm-priority-board-grid,
+  .dm-roadmap-board-grid,
+  .dm-tracking-board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 680px) {
@@ -405,8 +532,14 @@
   .dm-card-controls,
   .dm-signal-grid,
   .dm-capability-grid,
+  .dm-gap-grid,
+  .dm-roadmap-card-grid,
+  .dm-tracking-card-grid,
   .dm-diagnosis-map-grid,
-  .dm-capability-matrix-grid { grid-template-columns: 1fr; }
+  .dm-capability-matrix-grid,
+  .dm-priority-board-grid,
+  .dm-roadmap-board-grid,
+  .dm-tracking-board-grid { grid-template-columns: 1fr; }
   .dm-maturity-options button { min-height: 54px; grid-template-columns: 26px 1fr; align-items: center; text-align: left; }
   .dm-action-guide,
   .dm-maturity-scale,
@@ -415,12 +548,22 @@
   .dm-draft-summary,
   .dm-diagnosis-bridge,
   .dm-capability-workspace,
-  .dm-capability-matrix { padding: 16px; }
+  .dm-capability-matrix,
+  .dm-gap-workspace,
+  .dm-priority-board,
+  .dm-roadmap-workspace,
+  .dm-roadmap-board,
+  .dm-tracking-workspace,
+  .dm-tracking-board,
+  .dm-context-bridge { padding: 16px; }
   .dm-secondary-action { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .dm-signal-card,
-  .dm-capability-card { animation: none; transition: none; }
+  .dm-capability-card,
+  .dm-gap-card,
+  .dm-roadmap-card,
+  .dm-tracking-card { animation: none; transition: none; }
   .dm-maturity-options button { transition: none; }
 }

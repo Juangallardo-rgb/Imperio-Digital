@@ -40,6 +40,20 @@ export const DIGITAL_CAPABILITIES = Object.freeze([
   { key: "digitalGovernance", label: "Seguridad y gobierno digital", dimension: "digitalStrategy" },
 ]);
 
+export const ROADMAP_PERIODS = Object.freeze([
+  { key: "short", label: "Corto plazo" },
+  { key: "medium", label: "Mediano plazo" },
+  { key: "long", label: "Largo plazo" },
+]);
+
+export const TRACKING_AREAS = Object.freeze([
+  { key: "efficiency", label: "Eficiencia operativa" },
+  { key: "data", label: "Uso de datos" },
+  { key: "adoption", label: "Adopcion digital" },
+  { key: "satisfaction", label: "Experiencia del cliente" },
+  { key: "maturity", label: "Madurez digital" },
+]);
+
 const DIMENSION_MATCHERS = [
   { key: "data", terms: ["data", "datos", "analytics", "analitica", "kpi", "indicador", "decisionmaking", "informacion"] },
   { key: "technology", terms: ["technology", "tecnologia", "digitaltools", "tools", "herramienta", "integration", "integracion", "systems", "sistemas", "software", "platform"] },
@@ -339,4 +353,221 @@ export function getCapabilityLabelForCard(card, classifications) {
 
 export function getChoiceLabel(value, choices, fallback) {
   return getLabel(value, choices) || fallback;
+}
+
+function getTraceEntries(decisionTrace, phaseNames) {
+  const expectedPhases = new Set((Array.isArray(phaseNames) ? phaseNames : [])
+    .map(normalizeExperienceKey));
+
+  return (Array.isArray(decisionTrace) ? decisionTrace : []).filter((entry) =>
+    expectedPhases.has(normalizeExperienceKey(entry?.phaseName))
+  );
+}
+
+function getTraceTexts(entries) {
+  return [...new Set(entries.flatMap((entry) =>
+    Array.isArray(entry?.selectedTexts) ? entry.selectedTexts : []
+  ).filter((text) => typeof text === "string" && text.trim()))];
+}
+
+function getTraceTags(entries) {
+  return [...new Set(entries.flatMap((entry) =>
+    Array.isArray(entry?.tags) ? entry.tags : []
+  ).filter((tag) => typeof tag === "string" && tag.trim()))];
+}
+
+function getGapPriority(card, classifications) {
+  return classifications?.[card?.id]?.impact || card?.impact || "";
+}
+
+function getRoadmapPeriod(card, classifications) {
+  return classifications?.[card?.id]?.period || card?.period || "";
+}
+
+function getTrackingArea(card, classifications) {
+  return classifications?.[card?.id]?.area || card?.area || "";
+}
+
+function inferTrackingArea(option) {
+  const searchText = getSearchText(option);
+
+  if (searchText.includes("efficiency") || searchText.includes("eficiencia") || searchText.includes("process")) {
+    return "efficiency";
+  }
+
+  if (searchText.includes("data") || searchText.includes("datos") || searchText.includes("analytics")) {
+    return "data";
+  }
+
+  if (searchText.includes("adoption") || searchText.includes("adopcion") || searchText.includes("training")) {
+    return "adoption";
+  }
+
+  if (searchText.includes("satisfaction") || searchText.includes("satisfaccion") || searchText.includes("customer")) {
+    return "satisfaction";
+  }
+
+  return "";
+}
+
+function getContextReference(context) {
+  if (context?.texts?.length > 0) {
+    return "Se apoya en las decisiones registradas en las fases anteriores.";
+  }
+
+  return "Se fundamenta en el contexto disponible del escenario.";
+}
+
+export function buildMaturityContext(decisionTrace, phaseNames) {
+  const entries = getTraceEntries(decisionTrace, phaseNames);
+  const texts = getTraceTexts(entries);
+  const tags = getTraceTags(entries);
+  const dimensions = [...new Set(texts.map((text, index) =>
+    inferDiagnosisDimension({ id: index + 1, text, tags })
+  ).filter(Boolean))];
+
+  return {
+    hasContext: entries.length > 0,
+    texts,
+    tags,
+    dimensions,
+  };
+}
+
+export function createGapCard(option) {
+  return {
+    id: Number(option?.id),
+    text: String(option?.text || ""),
+    dimension: inferDiagnosisDimension(option),
+    impact: resolveChoiceKey(
+      getMetadataValue(option, ["impact", "priority", "relevance", "importance"]),
+      RELEVANCE_LEVELS
+    ),
+    urgency: resolveChoiceKey(
+      getMetadataValue(option, ["urgency", "priority", "relevance"]),
+      RELEVANCE_LEVELS
+    ),
+    tags: getOptionTags(option),
+  };
+}
+
+export function buildGapPriorityMap(cards, classifications) {
+  const map = Object.fromEntries(
+    RELEVANCE_LEVELS.map((level) => [level.key, []])
+  );
+
+  (Array.isArray(cards) ? cards : []).forEach((card) => {
+    const impact = getGapPriority(card, classifications) || "media";
+    const urgency = classifications?.[card?.id]?.urgency || card?.urgency || "media";
+
+    if (map[impact]) {
+      map[impact].push({ ...card, impact, urgency });
+    }
+  });
+
+  return map;
+}
+
+export function buildGapDraft(cards, classifications, context) {
+  const selectedCards = Array.isArray(cards) ? cards : [];
+
+  if (selectedCards.length === 0) {
+    return "Aun no hay brechas agregadas a la priorizacion.";
+  }
+
+  const priorityMap = buildGapPriorityMap(selectedCards, classifications);
+  const criticalCards = priorityMap.alta.length > 0 ? priorityMap.alta : selectedCards;
+  const dimensions = [...new Set(criticalCards
+    .map((card) => card.dimension)
+    .map(getDimensionLabel)
+    .filter(Boolean))];
+
+  return `Las brechas prioritarias se concentran en ${toReadableList(dimensions) || "las areas seleccionadas"}. ${getContextReference(context)} La priorizacion combina impacto y urgencia para orientar las siguientes iniciativas.`;
+}
+
+export function createInitiativeCard(option) {
+  return {
+    id: Number(option?.id),
+    text: String(option?.text || ""),
+    dimension: inferDiagnosisDimension(option),
+    period: resolveChoiceKey(
+      getMetadataValue(option, ["period", "timeframe", "roadmapPeriod", "horizon"]),
+      ROADMAP_PERIODS
+    ),
+    effort: resolveChoiceKey(
+      getMetadataValue(option, ["effort", "implementationEffort", "complexity"]),
+      RELEVANCE_LEVELS
+    ),
+    tags: getOptionTags(option),
+  };
+}
+
+export function buildRoadmap(cards, classifications) {
+  const roadmap = Object.fromEntries(
+    ROADMAP_PERIODS.map((period) => [period.key, []])
+  );
+
+  (Array.isArray(cards) ? cards : []).forEach((card) => {
+    const period = getRoadmapPeriod(card, classifications) || "medium";
+
+    if (roadmap[period]) roadmap[period].push({ ...card, period });
+  });
+
+  return roadmap;
+}
+
+export function buildTransformationDraft(cards, classifications, context) {
+  const selectedCards = Array.isArray(cards) ? cards : [];
+
+  if (selectedCards.length === 0) {
+    return "Aun no hay iniciativas agregadas al plan de transformacion.";
+  }
+
+  const roadmap = buildRoadmap(selectedCards, classifications);
+  const immediate = roadmap.short.length > 0 ? roadmap.short : selectedCards;
+  const initiativeNames = immediate.map((card) => card.text).filter(Boolean);
+
+  return `El plan inicia con ${toReadableList(initiativeNames) || "las iniciativas seleccionadas"}. ${getContextReference(context)} La secuencia propuesta permite avanzar de forma gradual y revisar el progreso en cada horizonte.`;
+}
+
+export function createTrackingCard(option) {
+  return {
+    id: Number(option?.id),
+    text: String(option?.text || ""),
+    area: inferTrackingArea(option),
+    tags: getOptionTags(option),
+  };
+}
+
+export function buildTrackingPanel(cards, classifications) {
+  const panel = Object.fromEntries(
+    TRACKING_AREAS.map((area) => [area.key, []])
+  );
+
+  (Array.isArray(cards) ? cards : []).forEach((card) => {
+    const area = getTrackingArea(card, classifications) || "maturity";
+
+    if (panel[area]) panel[area].push({ ...card, area });
+  });
+
+  return panel;
+}
+
+export function buildTrackingDraft(cards, classifications, context) {
+  const selectedCards = Array.isArray(cards) ? cards : [];
+
+  if (selectedCards.length === 0) {
+    return "Aun no hay indicadores agregados al seguimiento de madurez.";
+  }
+
+  const panel = buildTrackingPanel(selectedCards, classifications);
+  const activeAreas = TRACKING_AREAS
+    .filter((area) => panel[area.key].length > 0)
+    .map((area) => area.label);
+
+  return `El seguimiento observara ${toReadableList(activeAreas) || "las areas seleccionadas"}. ${getContextReference(context)} Los indicadores se revisaran de forma periodica para ajustar el plan de transformacion.`;
+}
+
+export function getDimensionLabelFromKey(key, fallback = "Por clasificar") {
+  return getDimensionLabel(key) || fallback;
 }

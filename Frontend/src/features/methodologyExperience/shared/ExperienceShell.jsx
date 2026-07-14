@@ -68,7 +68,13 @@ function ExperienceShell({
     ["definir", "idear", "prototipar", "evaluar"].includes(currentPhaseKey);
   const usesFocusedDigitalMaturityContinuity =
     model.methodology.code === "DigitalMaturity" &&
-    ["diagnosticoinicial", "evaluarcapacidades"].includes(currentPhaseKey);
+    [
+      "diagnosticoinicial",
+      "evaluarcapacidades",
+      "priorizarbrechas",
+      "plandetransformacion",
+      "seguimientodemadurez",
+    ].includes(currentPhaseKey);
   const usesPhaseSpecificDecisionSummary =
     (model.methodology.code === "DesignThinking" &&
       ["prototipar", "evaluar"].includes(currentPhaseKey)) ||
