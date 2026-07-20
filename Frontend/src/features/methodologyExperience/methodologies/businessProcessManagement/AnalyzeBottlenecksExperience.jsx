@@ -9,6 +9,7 @@ import {
   getProcessAreaLabel,
   PROCESS_AREAS,
 } from "./bpmHelpers";
+import BpmChoiceChips from "./BpmChoiceChips";
 
 function AnalyzeBottlenecksExperience({
   model,
@@ -152,38 +153,20 @@ function AnalyzeBottlenecksExperience({
                     <div><dt>Efecto</dt><dd>{getBottleneckEffectLabel(effect)}</dd></div>
                   </dl>
 
-                  {isSelected && (!location || !effect) && (
+                  {isSelected && (
                     <div className="bpm-manual-classification">
-                      {!location && (
-                        <label htmlFor={`bpm-bottleneck-location-${card.id}`}>
-                          Ubicacion
-                          <select
-                            id={`bpm-bottleneck-location-${card.id}`}
-                            value={location}
-                            onChange={(event) => updateClassification(card.id, "location", event.target.value)}
-                          >
-                            <option value="">Por clasificar</option>
-                            {PROCESS_AREAS.map((item) => (
-                              <option key={item.key} value={item.key}>{item.label}</option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
-                      {!effect && (
-                        <label htmlFor={`bpm-bottleneck-effect-${card.id}`}>
-                          Efecto
-                          <select
-                            id={`bpm-bottleneck-effect-${card.id}`}
-                            value={effect}
-                            onChange={(event) => updateClassification(card.id, "effect", event.target.value)}
-                          >
-                            <option value="">Por evaluar</option>
-                            {BOTTLENECK_EFFECTS.map((item) => (
-                              <option key={item.key} value={item.key}>{item.label}</option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
+                      <BpmChoiceChips
+                        label="Ubicacion"
+                        choices={PROCESS_AREAS}
+                        value={location}
+                        onChange={(value) => updateClassification(card.id, "location", value)}
+                      />
+                      <BpmChoiceChips
+                        label="Efecto"
+                        choices={BOTTLENECK_EFFECTS}
+                        value={effect}
+                        onChange={(value) => updateClassification(card.id, "effect", value)}
+                      />
                     </div>
                   )}
 

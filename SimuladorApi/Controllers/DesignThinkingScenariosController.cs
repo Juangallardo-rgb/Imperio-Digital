@@ -31,7 +31,15 @@ namespace SimuladorApi.Controllers
             }
             catch (ArgumentException exception)
             {
-                return BadRequest(exception.Message);
+                return BadRequest(new { message = exception.Message });
+            }
+            catch (AiContentGenerationException exception)
+            {
+                return StatusCode(
+                    exception.StatusCode == StatusCodes.Status429TooManyRequests
+                        ? StatusCodes.Status503ServiceUnavailable
+                        : StatusCodes.Status502BadGateway,
+                    BuildAiErrorResponse(exception));
             }
             catch
             {
@@ -62,13 +70,13 @@ namespace SimuladorApi.Controllers
             return Ok(scenarios);
         }
 
-        [Authorize]
+        [Authorize(Roles = "Docente")]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetScenarioById(int id)
         {
             var userId = GetUserId();
 
-            var scenario = await _scenarioService.GetScenarioDetailAsync(id, userId, false);
+            var scenario = await _scenarioService.GetScenarioDetailAsync(id, userId, true);
 
             if (scenario == null)
                 return NotFound("Escenario no encontrado.");
@@ -161,7 +169,7 @@ namespace SimuladorApi.Controllers
             var result = await _scenarioService.RegenerateBaseOptionsAsync(id, teacherId);
 
             if (!result.Success)
-                return BadRequest(result.Message);
+                return StatusCode(result.StatusCode, new { message = result.Message });
 
             return Ok(result.Message);
         }
@@ -170,10 +178,42 @@ namespace SimuladorApi.Controllers
         [HttpPost("generate-draft")]
         public async Task<IActionResult> GenerateScenarioDraft(GenerateScenarioDraftDto request)
         {
-            var result = await _scenarioService.GenerateScenarioDraftAsync(request.Methodology);
-
-            return Ok(result);
+            try
+            {
+                var result = await _scenarioService.GenerateScenarioDraftAsync(
+                    request,
+                    GetUserId(),
+                    HttpContext.RequestAborted);
+                return Ok(result);
+            }
+            catch (ArgumentException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
+            catch (AiContentGenerationException exception)
+            {
+                return StatusCode(
+                    exception.StatusCode == StatusCodes.Status429TooManyRequests
+                        ? StatusCodes.Status503ServiceUnavailable
+                        : StatusCodes.Status502BadGateway,
+                    BuildAiErrorResponse(exception));
+            }
         }
+
+        private static object BuildAiErrorResponse(AiContentGenerationException exception) => new
+        {
+            code = exception.PhaseName is null
+                ? exception.ErrorCode
+                : "AI_PHASE_GENERATION_FAILED",
+            message = exception.Message,
+            phaseName = exception.PhaseName,
+            methodologyCode = exception.MethodologyCode,
+            correlationId = exception.CorrelationId,
+            validationErrors = exception.ValidationErrors,
+            detail = exception.PhaseName is null
+                ? null
+                : "OpenRouter devolvió contenido que no cumplió la estructura esperada. Intenta nuevamente."
+        };
 
         private int GetUserId()
         {

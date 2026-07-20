@@ -6,6 +6,8 @@ using Microsoft.OpenApi.Models;
 using SimuladorApi.Data;
 using SimuladorApi.Hubs;
 using SimuladorApi.Services;
+using SimuladorApi.Services.Ai;
+using SimuladorApi.Services.OpenRouter;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -103,26 +105,29 @@ builder.Services.AddScoped<ScenarioService>();
 builder.Services.AddScoped<ScoringService>();
 builder.Services.AddScoped<KpiSimulationService>();
 builder.Services.AddScoped<AiFeedbackService>();
-builder.Services.AddScoped<AiScenarioContentService>();
 builder.Services.AddScoped<SimulationService>();
 builder.Services.AddScoped<CourseService>();
 builder.Services.AddScoped<PasswordResetService>();
 builder.Services.AddScoped<MethodologyCatalogService>();
 builder.Services.AddScoped<ScenarioOptionTemplateService>();
+builder.Services.AddSingleton<AiScenarioPromptBuilder>();
+builder.Services.AddSingleton<AiScenarioContentValidator>();
+builder.Services.AddScoped<AiScenarioContentService>();
+builder.Services.AddScoped<AiGenerationAuditService>();
+builder.Services.AddScoped<AiTextEvaluationService>();
 
 builder.Services.AddScoped<
     IRealtimeNotificationService,
     RealtimeNotificationService>();
 
-builder.Services.AddHttpClient<OpenRouterService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(180);
-});
+builder.Services.Configure<OpenRouterOptions>(
+    builder.Configuration.GetSection(OpenRouterOptions.SectionName));
 
-builder.Services.AddHttpClient<AiScenarioContentService>(client =>
+builder.Services.AddHttpClient<IOpenRouterClient, OpenRouterClient>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(180);
+    client.Timeout = Timeout.InfiniteTimeSpan;
 });
+builder.Services.AddScoped<OpenRouterService>();
 
 // =====================================================
 // CORS
@@ -130,9 +135,19 @@ builder.Services.AddHttpClient<AiScenarioContentService>(client =>
 
 var allowedOrigins = new List<string>
 {
-    "http://localhost:5173",
     "https://imperio-digital-one.vercel.app"
 };
+
+if (builder.Environment.IsDevelopment())
+{
+    allowedOrigins.AddRange(
+    [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174"
+    ]);
+}
 
 var configuredFrontendUrl =
     builder.Configuration["Frontend:Url"]?.TrimEnd('/');
@@ -253,7 +268,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseCors("AllowFrontend");
 

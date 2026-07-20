@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using SimuladorApi.Data;
 using SimuladorApi.DTOs.DesignThinking;
 using SimuladorApi.Models;
+using SimuladorApi.Services.Ai;
 
 namespace SimuladorApi.Services
 {
@@ -13,28 +14,31 @@ namespace SimuladorApi.Services
         private readonly ScoringService _scoringService;
         private readonly AiFeedbackService _aiFeedbackService;
         private readonly KpiSimulationService _kpiSimulationService;
-        private readonly ScenarioOptionTemplateService _scenarioOptionTemplateService;
         private readonly ScenarioPhaseMappingService _scenarioPhaseMappingService;
         private readonly IRealtimeNotificationService _realtime;
         private readonly ILogger<SimulationService> _logger;
+        private readonly AiTextEvaluationService _aiTextEvaluationService;
+        private readonly AiScenarioContentValidator _aiScenarioContentValidator;
 
         public SimulationService(
             AppDbContext context,
             ScoringService scoringService,
             AiFeedbackService aiFeedbackService,
             KpiSimulationService kpiSimulationService,
-            ScenarioOptionTemplateService scenarioOptionTemplateService,
             ScenarioPhaseMappingService scenarioPhaseMappingService,
             IRealtimeNotificationService realtime,
+            AiTextEvaluationService aiTextEvaluationService,
+            AiScenarioContentValidator aiScenarioContentValidator,
             ILogger<SimulationService> logger)
         {
             _context = context;
             _scoringService = scoringService;
             _aiFeedbackService = aiFeedbackService;
             _kpiSimulationService = kpiSimulationService;
-            _scenarioOptionTemplateService = scenarioOptionTemplateService;
             _scenarioPhaseMappingService = scenarioPhaseMappingService;
             _realtime = realtime;
+            _aiTextEvaluationService = aiTextEvaluationService;
+            _aiScenarioContentValidator = aiScenarioContentValidator;
             _logger = logger;
         }
 
@@ -45,6 +49,8 @@ namespace SimuladorApi.Services
             var scenario = await _context.Scenarios
                 .Include(s => s.PhaseSettings)
                     .ThenInclude(phase => phase.Criteria)
+                .Include(s => s.MethodologyCatalog)
+                    .ThenInclude(methodology => methodology!.Phases)
                 .FirstOrDefaultAsync(s => s.Id == request.ScenarioId && s.IsPublished);
 
             if (scenario == null)
@@ -65,12 +71,13 @@ namespace SimuladorApi.Services
                     return (false, "Este escenario no está asignado al curso.", 0);
             }
 
-            var compatibility = await EnsureLegacyScenarioConfigurationAsync(scenario);
-
-            if (!compatibility.Success)
-                return (false, compatibility.Message, 0);
-
-            await _scenarioPhaseMappingService.RepairScenarioOptionPhaseMappingsAsync(scenario);
+            if (!scenario.PhaseSettings.Any(phase => phase.IsEnabled))
+            {
+                _logger.LogWarning(
+                    "Simulation start blocked because scenario configuration is incomplete. ScenarioId={ScenarioId}",
+                    scenario.Id);
+                return (false, "El escenario requiere configuración antes de poder ejecutarse.", 0);
+            }
 
             var enabledPhases = scenario.PhaseSettings
                 .Where(p => p.IsEnabled)
@@ -114,6 +121,31 @@ namespace SimuladorApi.Services
                     "Se reanudará la simulación que ya tenías en progreso.",
                     inProgressAttempt.Id
                 );
+            }
+
+            if (scenario.GeneratedByAi &&
+                string.Equals(scenario.CreationMode, "AiAssisted", StringComparison.Ordinal))
+            {
+                if (scenario.MethodologyCatalog is null)
+                {
+                    return (false, "El escenario asistido por IA no tiene una metodología válida.", 0);
+                }
+
+                var simulationCoverage = _aiScenarioContentValidator.ValidateCoverage(
+                    scenario.MethodologyCatalog,
+                    scenarioOptions);
+                if (!simulationCoverage.IsValid)
+                {
+                    _logger.LogWarning(
+                        "Simulation start blocked for invalid AI scenario. ScenarioId={ScenarioId} Methodology={Methodology} ValidationErrors={ValidationErrors}",
+                        scenario.Id,
+                        scenario.Methodology,
+                        string.Join(" | ", simulationCoverage.Errors.Take(12)));
+                    return (
+                        false,
+                        "El escenario necesita regenerar sus opciones para recuperar los límites de selección, presupuesto y tiempo.",
+                        0);
+                }
             }
 
             var now = DateTime.UtcNow;
@@ -212,15 +244,12 @@ namespace SimuladorApi.Services
             var options = attempt.Scenario.Options
     .Where(o => NormalizePhaseName(o.PhaseName) == NormalizePhaseName(currentPhase))
     .OrderBy(o => o.OrderIndex)
-    .Select(o => new ScenarioOptionDetailDto
+    .Select(o => new ScenarioExecutionOptionDto
     {
         Id = o.Id,
         PhaseName = o.PhaseName,
         OptionType = o.OptionType,
         Text = o.Text,
-        Score = 0,
-        IsCorrect = false,
-        ImpactJson = o.ImpactJson,
         OrderIndex = o.OrderIndex,
         Cost = o.Cost,
         TimeCost = o.TimeCost,
@@ -354,16 +383,18 @@ namespace SimuladorApi.Services
                 allOptionsForPhase
             );
 
-            var textEvaluation = await _aiFeedbackService.EvaluateTextAnswerAsync(
-                phaseName,
-                request.TextAnswer,
-                attempt.Scenario.Methodology
-            );
+            var textEvaluation = await _aiTextEvaluationService.EvaluateAsync(
+                studentId,
+                attempt.Scenario,
+                phaseSetting,
+                selectedOptions,
+                request.TextAnswer);
 
             var phaseScore = _scoringService.CombinePhaseScore(
                 selectionScore,
                 textEvaluation.Score,
-                phaseSetting
+                phaseSetting,
+                textEvaluation.IsAvailable
             );
 
             var coherencePenalty = CalculateBasicCoherencePenalty(attempt, phaseName, selectedOptions);
@@ -416,6 +447,22 @@ namespace SimuladorApi.Services
                     {
                         QuestionType = "Selection",
                         SelectedOptionIdsJson = JsonSerializer.Serialize(request.SelectedOptionIds),
+                        SelectedOptionsSnapshotJson = JsonSerializer.Serialize(
+                            selectedOptions.Select(option => new SelectedOptionSnapshotDto
+                            {
+                                OptionId = option.Id,
+                                Text = option.Text,
+                                OptionType = option.OptionType,
+                                IsCorrect = option.IsCorrect,
+                                Score = option.Score,
+                                Rationale = null,
+                                ImpactJson = option.ImpactJson,
+                                TagsJson = option.TagsJson,
+                                Cost = option.Cost,
+                                TimeCost = option.TimeCost,
+                                RiskImpact = option.RiskImpact,
+                                CapturedAt = DateTime.UtcNow
+                            })),
                         TextAnswer = string.Empty,
                         Score = selectionScore,
                         Feedback = $"Puntaje de selección: {selectionScore}. Penalización de coherencia: {coherencePenalty}."
@@ -424,9 +471,16 @@ namespace SimuladorApi.Services
                     {
                         QuestionType = "Text",
                         SelectedOptionIdsJson = string.Empty,
+                        SelectedOptionsSnapshotJson = string.Empty,
                         TextAnswer = request.TextAnswer,
-                        Score = textEvaluation.Score,
-                        Feedback = textEvaluation.Feedback
+                        Score = textEvaluation.Score ?? 0,
+                        Feedback = textEvaluation.Feedback,
+                        TextEvaluationStatus = textEvaluation.Status,
+                        TextEvaluationJson = textEvaluation.EvaluationJson,
+                        TextEvaluationProvider = textEvaluation.Provider,
+                        TextEvaluationModel = textEvaluation.Model,
+                        TextEvaluationPromptVersion = textEvaluation.PromptVersion,
+                        TextEvaluatedAt = textEvaluation.EvaluatedAt
                     }
                 }
             };
@@ -570,36 +624,10 @@ namespace SimuladorApi.Services
                         .FirstOrDefault(answer =>
                             answer.QuestionType == "Text");
 
-                    var selectedOptionIds = DeserializeSelectedOptionIds(
-                        selectionAnswer?.SelectedOptionIdsJson
-                    );
-
-                    var optionsToReview = attempt.Scenario.Options
-                        .Where(option =>
-                            NormalizePhaseName(option.PhaseName) ==
-                            NormalizePhaseName(response.PhaseName))
-                        .Where(option =>
-                            selectedOptionIds.Contains(option.Id) ||
-                            option.IsCorrect)
-                        .OrderBy(option => option.OrderIndex)
-                        .Select(option => new OptionAnswerReviewDto
-                        {
-                            OptionId = option.Id,
-                            OptionType = option.OptionType,
-                            Text = option.Text,
-                            Score = option.Score,
-                            WasSelected = selectedOptionIds.Contains(option.Id),
-                            IsCorrect = option.IsCorrect,
-                            ImpactJson = option.ImpactJson,
-                            TagsJson = option.TagsJson,
-                            Cost = option.Cost,
-                            TimeCost = option.TimeCost,
-                            RiskImpact = option.RiskImpact,
-                            ExpectedImpactLevel = option.ExpectedImpactLevel,
-                            ExpectedEffortLevel = option.ExpectedEffortLevel,
-                            ExpectedViabilityLevel = option.ExpectedViabilityLevel
-                        })
-                        .ToList();
+                    var optionsToReview = BuildOptionReviews(
+                        selectionAnswer,
+                        attempt.Scenario.Options,
+                        response.PhaseName);
 
                     return new PhaseAnswerReviewDto
                     {
@@ -692,158 +720,6 @@ namespace SimuladorApi.Services
                     attemptId
                 );
             }
-        }
-
-        private async Task<(bool Success, string Message)> EnsureLegacyScenarioConfigurationAsync(
-            Scenario scenario)
-        {
-            if (scenario.PhaseSettings.Any(phase => phase.IsEnabled))
-                return (true, string.Empty);
-
-            var methodologyCode = NormalizeLegacyMethodologyCode(scenario.Methodology);
-            var methodology = await _context.Methodologies
-                .Include(item => item.Phases)
-                    .ThenInclude(phase => phase.Criteria)
-                .FirstOrDefaultAsync(item =>
-                    item.Code == methodologyCode &&
-                    item.IsActive);
-
-            if (methodology == null)
-            {
-                return (
-                    false,
-                    "El escenario histórico no tiene una metodología activa para recuperar sus fases."
-                );
-            }
-
-            var catalogPhases = methodology.Phases
-                .Where(phase => phase.IsActive)
-                .OrderBy(phase => phase.PhaseOrder)
-                .ToList();
-
-            if (!catalogPhases.Any())
-            {
-                return (
-                    false,
-                    "La metodología del escenario no tiene fases activas configuradas."
-                );
-            }
-
-            var restoredPhaseSettings = new List<ScenarioPhaseSetting>();
-
-            foreach (var catalogPhase in catalogPhases)
-            {
-                var existingPhase = scenario.PhaseSettings.FirstOrDefault(phase =>
-                    NormalizePhaseName(phase.PhaseName) ==
-                    NormalizePhaseName(catalogPhase.Name));
-
-                if (existingPhase != null)
-                {
-                    existingPhase.MethodologyPhaseId = catalogPhase.Id;
-                    existingPhase.CustomName = string.IsNullOrWhiteSpace(existingPhase.CustomName)
-                        ? catalogPhase.Name
-                        : existingPhase.CustomName;
-                    existingPhase.PhaseOrder = catalogPhase.PhaseOrder;
-                    existingPhase.PhaseWeight = existingPhase.PhaseWeight > 0
-                        ? existingPhase.PhaseWeight
-                        : catalogPhase.DefaultWeight;
-                    existingPhase.IsEnabled = true;
-
-                    foreach (var catalogCriteria in catalogPhase.Criteria
-                        .Where(criteria => criteria.IsActive))
-                    {
-                        var existingCriteria = existingPhase.Criteria.FirstOrDefault(criteria =>
-                            NormalizePhaseName(criteria.CriterionName) ==
-                            NormalizePhaseName(catalogCriteria.Name));
-
-                        if (existingCriteria != null)
-                        {
-                            existingCriteria.MethodologyPhaseCriteriaId = catalogCriteria.Id;
-                            existingCriteria.CriterionWeight = existingCriteria.CriterionWeight > 0
-                                ? existingCriteria.CriterionWeight
-                                : catalogCriteria.DefaultWeight;
-                            existingCriteria.EvaluationType = string.IsNullOrWhiteSpace(existingCriteria.EvaluationType)
-                                ? catalogCriteria.EvaluationType
-                                : existingCriteria.EvaluationType;
-                            continue;
-                        }
-
-                        existingPhase.Criteria.Add(new PhaseCriteriaSetting
-                        {
-                            MethodologyPhaseCriteriaId = catalogCriteria.Id,
-                            CriterionName = catalogCriteria.Name,
-                            CriterionWeight = catalogCriteria.DefaultWeight,
-                            EvaluationType = catalogCriteria.EvaluationType
-                        });
-                    }
-
-                    continue;
-                }
-
-                restoredPhaseSettings.Add(new ScenarioPhaseSetting
-                {
-                    ScenarioId = scenario.Id,
-                    MethodologyPhaseId = catalogPhase.Id,
-                    PhaseName = catalogPhase.Name,
-                    CustomName = catalogPhase.Name,
-                    PhaseOrder = catalogPhase.PhaseOrder,
-                    PhaseWeight = catalogPhase.DefaultWeight,
-                    IsEnabled = true,
-                    Criteria = catalogPhase.Criteria
-                        .Where(criteria => criteria.IsActive)
-                        .Select(criteria => new PhaseCriteriaSetting
-                        {
-                            MethodologyPhaseCriteriaId = criteria.Id,
-                            CriterionName = criteria.Name,
-                            CriterionWeight = criteria.DefaultWeight,
-                            EvaluationType = criteria.EvaluationType
-                        })
-                        .ToList()
-                });
-            }
-
-            var existingOptionPhaseNames = await _context.ScenarioOptions
-                .Where(option => option.ScenarioId == scenario.Id)
-                .Select(option => option.PhaseName)
-                .ToListAsync();
-
-            var restoredOptions = _scenarioOptionTemplateService
-                .GenerateBaseOptions(scenario.Id, methodology.Code)
-                .Where(option => catalogPhases.Any(phase =>
-                    NormalizePhaseName(phase.Name) == NormalizePhaseName(option.PhaseName)))
-                .Where(option => !existingOptionPhaseNames.Any(existingPhaseName =>
-                    NormalizePhaseName(existingPhaseName) == NormalizePhaseName(option.PhaseName)))
-                .ToList();
-
-            _context.ScenarioPhaseSettings.AddRange(restoredPhaseSettings);
-
-            if (restoredOptions.Any())
-                _context.ScenarioOptions.AddRange(restoredOptions);
-
-            scenario.Methodology = methodology.Code;
-            scenario.MethodologyId ??= methodology.Id;
-            scenario.UpdatedAt = DateTime.UtcNow;
-            scenario.PhaseSettings.AddRange(restoredPhaseSettings);
-
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "Se actualizó la configuración metodológica del escenario histórico {ScenarioId}.",
-                scenario.Id
-            );
-
-            return (true, string.Empty);
-        }
-
-        private static string NormalizeLegacyMethodologyCode(string methodologyCode)
-        {
-            return methodologyCode?.Trim() switch
-            {
-                "BPM" or "Business Process Management" or "BusinessProcessManagement" or "business-process-management" => "BPM",
-                "DigitalMaturity" or "Madurez Digital" or "MadurezDigital" or "digital-maturity" => "DigitalMaturity",
-                "LeanStartup" or "Lean Startup" or "lean-startup" => "LeanStartup",
-                _ => "DesignThinking"
-            };
         }
 
         private static string GetMethodologyName(string methodologyCode)
@@ -1070,6 +946,96 @@ namespace SimuladorApi.Services
             catch
             {
                 return new List<int>();
+            }
+        }
+
+        private static List<OptionAnswerReviewDto> BuildOptionReviews(
+            SimulationAnswer? selectionAnswer,
+            IReadOnlyCollection<ScenarioOption> currentOptions,
+            string phaseName)
+        {
+            var snapshots = DeserializeSelectedOptionSnapshots(
+                selectionAnswer?.SelectedOptionsSnapshotJson);
+            if (snapshots.Count > 0)
+            {
+                var selectedIds = snapshots.Select(snapshot => snapshot.OptionId).ToHashSet();
+                var selectedReviews = snapshots.Select(snapshot => new OptionAnswerReviewDto
+                {
+                    OptionId = snapshot.OptionId,
+                    OptionType = snapshot.OptionType,
+                    Text = snapshot.Text,
+                    Score = snapshot.Score,
+                    WasSelected = true,
+                    IsCorrect = snapshot.IsCorrect,
+                    ImpactJson = snapshot.ImpactJson,
+                    TagsJson = snapshot.TagsJson,
+                    Cost = snapshot.Cost,
+                    TimeCost = snapshot.TimeCost,
+                    RiskImpact = snapshot.RiskImpact
+                });
+                var omittedCorrect = currentOptions
+                    .Where(option => NormalizePhaseName(option.PhaseName) == NormalizePhaseName(phaseName))
+                    .Where(option => option.IsCorrect && !selectedIds.Contains(option.Id))
+                    .OrderBy(option => option.OrderIndex)
+                    .Select(option => new OptionAnswerReviewDto
+                    {
+                        OptionId = option.Id,
+                        OptionType = option.OptionType,
+                        Text = option.Text,
+                        Score = option.Score,
+                        WasSelected = false,
+                        IsCorrect = true,
+                        ImpactJson = option.ImpactJson,
+                        TagsJson = option.TagsJson,
+                        Cost = option.Cost,
+                        TimeCost = option.TimeCost,
+                        RiskImpact = option.RiskImpact,
+                        ExpectedImpactLevel = option.ExpectedImpactLevel,
+                        ExpectedEffortLevel = option.ExpectedEffortLevel,
+                        ExpectedViabilityLevel = option.ExpectedViabilityLevel
+                    });
+                return selectedReviews.Concat(omittedCorrect).ToList();
+            }
+
+            var selectedOptionIds = DeserializeSelectedOptionIds(selectionAnswer?.SelectedOptionIdsJson);
+            return currentOptions
+                .Where(option => NormalizePhaseName(option.PhaseName) == NormalizePhaseName(phaseName))
+                .Where(option => selectedOptionIds.Contains(option.Id) || option.IsCorrect)
+                .OrderBy(option => option.OrderIndex)
+                .Select(option => new OptionAnswerReviewDto
+                {
+                    OptionId = option.Id,
+                    OptionType = option.OptionType,
+                    Text = option.Text,
+                    Score = option.Score,
+                    WasSelected = selectedOptionIds.Contains(option.Id),
+                    IsCorrect = option.IsCorrect,
+                    ImpactJson = option.ImpactJson,
+                    TagsJson = option.TagsJson,
+                    Cost = option.Cost,
+                    TimeCost = option.TimeCost,
+                    RiskImpact = option.RiskImpact,
+                    ExpectedImpactLevel = option.ExpectedImpactLevel,
+                    ExpectedEffortLevel = option.ExpectedEffortLevel,
+                    ExpectedViabilityLevel = option.ExpectedViabilityLevel
+                })
+                .ToList();
+        }
+
+        private static List<SelectedOptionSnapshotDto> DeserializeSelectedOptionSnapshots(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return new List<SelectedOptionSnapshotDto>();
+            }
+            try
+            {
+                return JsonSerializer.Deserialize<List<SelectedOptionSnapshotDto>>(json)
+                    ?? new List<SelectedOptionSnapshotDto>();
+            }
+            catch (JsonException)
+            {
+                return new List<SelectedOptionSnapshotDto>();
             }
         }
 

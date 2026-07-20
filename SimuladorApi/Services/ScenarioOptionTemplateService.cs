@@ -6,13 +6,43 @@ namespace SimuladorApi.Services
     {
         public List<ScenarioOption> GenerateBaseOptions(int scenarioId, string methodologyCode)
         {
-            return methodologyCode switch
+            var options = methodologyCode switch
             {
                 "BPM" => GenerateBpmOptions(scenarioId),
                 "DigitalMaturity" => GenerateDigitalMaturityOptions(scenarioId),
                 "LeanStartup" => GenerateLeanStartupOptions(scenarioId),
                 _ => GenerateDesignThinkingOptions(scenarioId)
             };
+
+            ApplySimulationPolicy(options, methodologyCode);
+            return options;
+        }
+
+        private static void ApplySimulationPolicy(
+            IReadOnlyCollection<ScenarioOption> options,
+            string methodologyCode)
+        {
+            foreach (var phaseGroup in options.GroupBy(option => option.PhaseName, StringComparer.Ordinal))
+            {
+                var policy = Ai.AiScenarioGenerationPolicy.GetRequired(methodologyCode, phaseGroup.Key);
+                var phaseOptions = phaseGroup.OrderBy(option => option.OrderIndex).ToList();
+                if (phaseOptions.Count != policy.ExpectedOptionCount)
+                {
+                    throw new InvalidOperationException(
+                        $"La plantilla {methodologyCode}/{phaseGroup.Key} no coincide con la política de simulación.");
+                }
+
+                foreach (var option in phaseOptions)
+                {
+                    var optionPolicy = policy.GetOption(option.OrderIndex);
+                    option.IsCorrect = optionPolicy.IsCorrect;
+                    option.Score = optionPolicy.IsCorrect ? 100 : 0;
+                    option.Cost = optionPolicy.Cost;
+                    option.TimeCost = optionPolicy.TimeCost;
+                    option.RiskImpact = optionPolicy.RiskImpact;
+                    option.MaxSelections = policy.MaxSelections;
+                }
+            }
         }
 
         private static ScenarioOption Option(
@@ -60,15 +90,19 @@ namespace SimuladorApi.Services
             {
                 Option(scenarioId, "Empatizar", "Evidence",
                     "Los usuarios reportan fricción, falta de claridad y pérdida de confianza durante el proceso digital.",
-                    true, 1, "[\"ux\",\"trust\",\"friction\",\"user\"]", 5, riskImpact: -2),
+                    true, 1, "[\"ux\",\"trust\",\"friction\",\"user\"]", 4, riskImpact: -2),
 
                 Option(scenarioId, "Empatizar", "Evidence",
                     "Existen señales de abandono cuando el usuario no comprende costos, tiempos o pasos requeridos.",
-                    true, 2, "[\"abandonment\",\"clarity\",\"conversion\"]", 5, riskImpact: -2),
+                    true, 2, "[\"abandonment\",\"clarity\",\"conversion\"]", 4, riskImpact: -2),
+
+                Option(scenarioId, "Empatizar", "Evidence",
+                    "La observación del flujo revela pasos confusos, mensajes ambiguos y campos innecesarios.",
+                    true, 3, "[\"user-flow\",\"friction\",\"ux\"]", 4, riskImpact: -1),
 
                 Option(scenarioId, "Empatizar", "Evidence",
                     "El problema principal es que la marca necesita colores más modernos.",
-                    false, 3, "[\"branding\"]", 5, riskImpact: 5),
+                    false, 4, "[\"branding\"]", 4, riskImpact: 5),
 
                 Option(scenarioId, "Definir", "ProblemStatement",
                     "El usuario necesita un proceso digital claro, simple y confiable porque la fricción actual reduce la conversión y satisfacción.",
@@ -145,8 +179,12 @@ namespace SimuladorApi.Services
                     true, 2, "[\"roles\",\"approval\",\"traceability\"]", 4, riskImpact: -2),
 
                 Option(scenarioId, "Identificar proceso", "ProcessEvidence",
+                    "Las transferencias entre áreas generan esperas, retrabajo y pérdida de información.",
+                    true, 3, "[\"handoff\",\"rework\",\"waiting-time\"]", 4, riskImpact: -2),
+
+                Option(scenarioId, "Identificar proceso", "ProcessEvidence",
                     "La marca necesita una paleta de colores más moderna.",
-                    false, 3, "[\"branding\"]", 4, riskImpact: 5),
+                    false, 4, "[\"branding\"]", 4, riskImpact: 5),
 
                 Option(scenarioId, "Modelar proceso actual", "CurrentProcessStep",
                     "Solicitud recibida → revisión manual → aprobación interna → respuesta → registro final.",

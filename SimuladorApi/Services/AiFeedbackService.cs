@@ -1,93 +1,109 @@
-﻿namespace SimuladorApi.Services
+using Microsoft.Extensions.Options;
+using SimuladorApi.Services.OpenRouter;
+
+namespace SimuladorApi.Services;
+
+public sealed class AiFeedbackService
 {
-    public class AiFeedbackService
+    private readonly IOpenRouterClient _client;
+    private readonly OpenRouterOptions _options;
+
+    public AiFeedbackService(
+        IOpenRouterClient client,
+        IOptions<OpenRouterOptions> options)
     {
-        public Task<(decimal Score, string Feedback)> EvaluateTextAnswerAsync(
-            string phaseName,
-            string studentAnswer,
-            string methodologyCode = "DesignThinking")
-        {
-            var methodologyName = GetMethodologyName(methodologyCode);
-
-            if (string.IsNullOrWhiteSpace(studentAnswer))
-            {
-                return Task.FromResult((
-                    40m,
-                    $"En la fase {phaseName}, la respuesta escrita fue limitada. Se recomienda justificar mejor la decisión usando evidencia del caso y el enfoque de {methodologyName}."
-                ));
-            }
-
-            if (studentAnswer.Length < 80)
-            {
-                return Task.FromResult((
-                    65m,
-                    $"En la fase {phaseName}, la respuesta presenta una idea inicial, pero necesita mayor profundidad, relación con el problema y justificación metodológica."
-                ));
-            }
-
-            return Task.FromResult((
-                85m,
-                $"En la fase {phaseName}, la respuesta demuestra comprensión adecuada del caso, conecta la decisión con la metodología {methodologyName} y presenta una justificación coherente."
-            ));
-        }
-
-        public Task<string> GeneratePhaseFeedbackAsync(
-            string phaseName,
-            decimal score,
-            string methodologyCode = "DesignThinking")
-        {
-            var methodologyName = GetMethodologyName(methodologyCode);
-
-            string feedback;
-
-            if (score >= 85)
-            {
-                feedback = $"Excelente desempeño en la fase {phaseName}. La decisión está bien alineada con {methodologyName} y demuestra análisis estratégico.";
-            }
-            else if (score >= 70)
-            {
-                feedback = $"Buen desempeño en la fase {phaseName}. Hay una base correcta, aunque se puede profundizar más la relación entre evidencia, decisión y metodología.";
-            }
-            else if (score >= 50)
-            {
-                feedback = $"Desempeño medio en la fase {phaseName}. Es necesario mejorar la selección de elementos clave y justificar mejor las decisiones.";
-            }
-            else
-            {
-                feedback = $"Desempeño bajo en la fase {phaseName}. Se recomienda revisar el propósito de esta fase dentro de {methodologyName} antes de continuar.";
-            }
-
-            return Task.FromResult(feedback);
-        }
-
-        public Task<string> GenerateFinalFeedbackAsync(
-            decimal finalScore,
-            List<(string PhaseName, decimal Score)> phaseScores,
-            string methodologyCode = "DesignThinking")
-        {
-            var methodologyName = GetMethodologyName(methodologyCode);
-
-            var strongest = phaseScores.OrderByDescending(p => p.Score).FirstOrDefault();
-            var weakest = phaseScores.OrderBy(p => p.Score).FirstOrDefault();
-
-            var feedback =
-                $"El estudiante obtuvo un score final de {finalScore} aplicando {methodologyName}. " +
-                $"Su fase más fuerte fue {strongest.PhaseName} con {strongest.Score}, " +
-                $"mientras que la fase que requiere mayor refuerzo fue {weakest.PhaseName} con {weakest.Score}. " +
-                $"Como recomendación, debe fortalecer la coherencia entre diagnóstico, decisiones, evidencia y resultados esperados.";
-
-            return Task.FromResult(feedback);
-        }
-
-        private static string GetMethodologyName(string methodologyCode)
-        {
-            return methodologyCode switch
-            {
-                "BPM" => "Business Process Management",
-                "DigitalMaturity" => "Madurez Digital",
-                "LeanStartup" => "Lean Startup",
-                _ => "Design Thinking"
-            };
-        }
+        _client = client;
+        _options = options.Value;
     }
+
+    public async Task<string> GeneratePhaseFeedbackAsync(
+        string phaseName,
+        decimal score,
+        string methodologyCode = "DesignThinking")
+    {
+        var prompt = $"""
+            Interpreta de forma narrativa un resultado académico ya calculado. No cambies ni
+            recalcules el valor numérico. Metodología: {GetMethodologyName(methodologyCode)}.
+            Fase: {phaseName}. Puntaje determinista: {score}/100. En máximo 90 palabras,
+            indica una fortaleza y una mejora práctica, con tono respetuoso y formativo.
+            """;
+        var result = await _client.GenerateTextAsync(new OpenRouterTextRequest(
+            "phase-feedback",
+            _options.ResolveFeedbackModel(),
+            [
+                new OpenRouterMessage(
+                    "system",
+                    "Solo interpretas resultados ya calculados; nunca alteras puntajes, recursos ni KPI."),
+                new OpenRouterMessage("user", prompt)
+            ],
+            Temperature: 0.4,
+            MaxTokens: 180));
+        return result.Success && !string.IsNullOrWhiteSpace(result.Value)
+            ? result.Value
+            : BuildLocalPhaseSummary(phaseName, score, methodologyCode);
+    }
+
+    public async Task<string> GenerateFinalFeedbackAsync(
+        decimal finalScore,
+        List<(string PhaseName, decimal Score)> phaseScores,
+        string methodologyCode = "DesignThinking")
+    {
+        var strongest = phaseScores.OrderByDescending(phase => phase.Score).FirstOrDefault();
+        var weakest = phaseScores.OrderBy(phase => phase.Score).FirstOrDefault();
+        var results = string.Join(
+            "; ",
+            phaseScores.Select(phase => $"{phase.PhaseName}: {phase.Score}"));
+        var prompt = $"""
+            Redacta una interpretación final de máximo 140 palabras. Los números fueron calculados
+            por el sistema y no debes modificarlos. Metodología: {GetMethodologyName(methodologyCode)}.
+            Puntaje final: {finalScore}. Resultados por fase: {results}. Mejor fase:
+            {strongest.PhaseName} ({strongest.Score}). Fase a reforzar: {weakest.PhaseName}
+            ({weakest.Score}). Explica tendencias y recomienda dos acciones prácticas.
+            """;
+        var result = await _client.GenerateTextAsync(new OpenRouterTextRequest(
+            "final-feedback",
+            _options.ResolveFeedbackModel(),
+            [
+                new OpenRouterMessage(
+                    "system",
+                    "Solo interpretas resultados ya calculados; nunca alteras puntajes, recursos ni KPI."),
+                new OpenRouterMessage("user", prompt)
+            ],
+            Temperature: 0.4,
+            MaxTokens: 260));
+        return result.Success && !string.IsNullOrWhiteSpace(result.Value)
+            ? result.Value
+            : BuildLocalFinalSummary(finalScore, strongest, weakest, methodologyCode);
+    }
+
+    private static string BuildLocalPhaseSummary(
+        string phaseName,
+        decimal score,
+        string methodologyCode)
+    {
+        var assessment = score >= 85
+            ? "El desempeño fue sólido"
+            : score >= 70
+                ? "El desempeño fue adecuado"
+                : score >= 50
+                    ? "El desempeño fue intermedio"
+                    : "El desempeño requiere refuerzo";
+        return $"Resumen automático local: {assessment} en {phaseName}. Revisa la relación entre evidencia, decisión y {GetMethodologyName(methodologyCode)} para fortalecer el siguiente intento.";
+    }
+
+    private static string BuildLocalFinalSummary(
+        decimal finalScore,
+        (string PhaseName, decimal Score) strongest,
+        (string PhaseName, decimal Score) weakest,
+        string methodologyCode) =>
+        $"Resumen automático local: el puntaje final fue {finalScore} en {GetMethodologyName(methodologyCode)}. La fase más fuerte fue {strongest.PhaseName} ({strongest.Score}) y la fase a reforzar fue {weakest.PhaseName} ({weakest.Score}). Conviene revisar la evidencia y la coherencia entre decisiones antes de un nuevo intento.";
+
+    private static string GetMethodologyName(string methodologyCode) =>
+        methodologyCode switch
+        {
+            "BPM" => "Business Process Management",
+            "DigitalMaturity" => "Madurez Digital",
+            "LeanStartup" => "Lean Startup",
+            _ => "Design Thinking"
+        };
 }

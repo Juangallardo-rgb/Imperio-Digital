@@ -107,10 +107,6 @@ function Navbar() {
         <div className="app-sidebar-header">
           <NavLink to="/dashboard" className="brand-area" onClick={closeMenu}>
             <img src={logo} alt="Imperio Digital" className="brand-logo" />
-            <div>
-              <strong>Imperio Digital</strong>
-              <span>Transformación empresarial</span>
-            </div>
           </NavLink>
 
           <button className="app-sidebar-close" type="button" onClick={closeMenu} aria-label="Cerrar navegación">

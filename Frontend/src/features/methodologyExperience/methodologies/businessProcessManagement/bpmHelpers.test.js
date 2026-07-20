@@ -5,9 +5,13 @@ import {
   buildBottleneckDraft,
   buildBpmPreviousContext,
   buildCurrentProcessFlow,
+  buildKpiDashboard,
+  buildRedesignBoard,
   createBottleneckCard,
   createCurrentProcessStepCard,
+  createKpiCard,
   createProcessEvidenceCard,
+  createProcessImprovementCard,
   getEffectiveSelectionLimit,
 } from "./bpmHelpers.js";
 
@@ -79,6 +83,62 @@ test("conserva el contrato de envio al analizar cuellos de botella", () => {
     {
       selectedOptionIds: [3],
       textAnswer: "El registro manual concentra la demora.",
+    }
+  );
+});
+
+test("construye el tablero de rediseño sin exponer datos internos", () => {
+  const improvement = createProcessImprovementCard({
+    id: 4,
+    text: "Automatizar estados y notificaciones para reducir consultas manuales.",
+    tags: ["automation", "traceability"],
+    score: 100,
+    isCorrect: true,
+  });
+  const board = buildRedesignBoard(
+    [improvement],
+    {},
+    {
+      flowSteps: ["Registro manual"],
+      bottlenecks: ["Aprobacion manual"],
+    }
+  );
+
+  assert.equal(improvement.improvementType, "automatizar");
+  assert.equal("score" in improvement, false);
+  assert.equal("isCorrect" in improvement, false);
+  assert.deepEqual(board.currentSteps, ["Registro manual"]);
+  assert.equal(board.improvements[0].label, "Automatizar");
+});
+
+test("organiza indicadores BPM por enfoque sin alterar el payload", () => {
+  const cycleTime = createKpiCard({
+    id: 5,
+    text: "Tiempo de ciclo del proceso.",
+    tags: ["cycleTime", "process-efficiency"],
+    isCorrect: true,
+  });
+  const errorRate = createKpiCard({
+    id: 6,
+    text: "Tasa de errores o reprocesos.",
+    tags: ["errorRate", "quality"],
+  });
+  const dashboard = buildKpiDashboard([cycleTime, errorRate], {});
+
+  assert.equal(cycleTime.focus, "eficiencia");
+  assert.equal(errorRate.focus, "calidad");
+  assert.equal("isCorrect" in cycleTime, false);
+  assert.equal(dashboard.find((area) => area.key === "eficiencia").metrics.length, 1);
+  assert.equal(dashboard.find((area) => area.key === "calidad").metrics.length, 1);
+  assert.deepEqual(
+    createPhaseSubmission({
+      selectedOptionIds: [5, 6, 6],
+      textAnswer: "Revisaremos los indicadores cada semana.",
+      localFocus: "calidad",
+    }),
+    {
+      selectedOptionIds: [5, 6],
+      textAnswer: "Revisaremos los indicadores cada semana.",
     }
   );
 });

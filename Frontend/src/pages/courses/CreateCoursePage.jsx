@@ -65,18 +65,18 @@ function CreateCoursePage() {
               name="name"
               value={form.name}
               onChange={handleChange}
-              placeholder="Ej: Transformación Digital - Paralelo A"
+              placeholder="Innovación y transformación"
               required
             />
           </div>
 
           <div className="form-group">
-            <label>Descripción</label>
+            <label>NRC o Código del curso</label>
             <textarea
               name="description"
               value={form.description}
               onChange={handleChange}
-              placeholder="Describe el objetivo del curso"
+              placeholder="INN-0002"
               required
             />
           </div>

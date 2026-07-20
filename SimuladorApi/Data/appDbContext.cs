@@ -48,6 +48,8 @@ namespace SimuladorApi.Data
 
         public DbSet<MethodologyPhaseCriteria> MethodologyPhaseCriteria { get; set; }
 
+        public DbSet<AiGenerationRecord> AiGenerationRecords { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -132,6 +134,34 @@ namespace SimuladorApi.Data
                 .WithMany(s => s.SimulationAttempts)
                 .HasForeignKey(a => a.ScenarioId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AiGenerationRecord>()
+                .HasOne(record => record.Scenario)
+                .WithMany(scenario => scenario.AiGenerationRecords)
+                .HasForeignKey(record => record.ScenarioId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<AiGenerationRecord>()
+                .HasIndex(record => record.CorrelationId)
+                .IsUnique();
+
+            modelBuilder.Entity<AiGenerationRecord>()
+                .Property(record => record.MethodologyCode)
+                .HasMaxLength(64);
+
+            modelBuilder.Entity<AiGenerationRecord>()
+                .Property(record => record.ResponseFormat)
+                .HasMaxLength(32)
+                .HasDefaultValue("none");
+
+            modelBuilder.Entity<AiGenerationRecord>()
+                .HasIndex(record => new
+                {
+                    record.RequestedByUserId,
+                    record.MethodologyCode,
+                    record.OperationType,
+                    record.Status
+                });
 
             modelBuilder.Entity<SimulationAttempt>()
                 .HasOne(a => a.Student)

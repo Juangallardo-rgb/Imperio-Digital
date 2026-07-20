@@ -38,6 +38,18 @@
 
         public DateTime? UpdatedAt { get; set; }
 
+        public string CreationMode { get; set; } = "Legacy";
+
+        public bool GeneratedByAi { get; set; }
+
+        public string? AiProvider { get; set; }
+
+        public string? AiModel { get; set; }
+
+        public string? AiPromptVersion { get; set; }
+
+        public DateTime? AiGeneratedAt { get; set; }
+
         public List<PhaseSettingDetailDto> PhaseSettings { get; set; } = new();
 
         public List<ScenarioOptionDetailDto> Options { get; set; } = new();

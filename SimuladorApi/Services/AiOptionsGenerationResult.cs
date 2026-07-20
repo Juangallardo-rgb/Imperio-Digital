@@ -38,5 +38,25 @@ namespace SimuladorApi.Services
         public bool OpenRouterResponded { get; init; }
 
         public int? OpenRouterStatusCode { get; init; }
+
+        public string RequestedModel { get; init; } = string.Empty;
+
+        public string? EffectiveModel { get; init; }
+
+        public string PromptVersion { get; init; } = string.Empty;
+
+        public int RetryCount { get; init; }
+
+        public string PromptHash { get; init; } = string.Empty;
+
+        public string MethodologyCode { get; init; } = string.Empty;
+
+        public string? FailedPhaseName { get; init; }
+
+        public Guid CorrelationId { get; init; }
+
+        public List<string> ValidationErrors { get; init; } = new();
+
+        public string ResponseFormat { get; init; } = "none";
     }
 }

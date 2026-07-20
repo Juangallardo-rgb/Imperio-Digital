@@ -1,9 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/api";
 import { getToken } from "../../utils/auth";
 import { getPhaseExperienceDescriptor } from "../../features/methodologyExperience/adapters/legacyScenarioAdapter";
 import { isMethodologyExperienceV2Enabled } from "../../features/methodologyExperience/engine/featureFlags";
+import {
+  CREATION_MODE_ACTIONS,
+  createScenarioRequestCoordinator,
+  parseScenarioRequestError,
+  retainValidDraftAfterFailure,
+  resolveAiDraftGenerationId,
+} from "./scenarioCreationState";
+
+function AiLoadingModal({ title, message }) {
+  return (
+    <div className="ai-generation-modal-backdrop" role="presentation">
+      <section
+        className="ai-generation-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-generation-modal-title"
+        aria-describedby="ai-generation-modal-message"
+      >
+        <div className="ai-generation-spinner" aria-hidden="true" />
+        <span className="eyebrow">Procesando con OpenRouter</span>
+        <h2 id="ai-generation-modal-title">{title}</h2>
+        <p id="ai-generation-modal-message">{message}</p>
+        <small>No cierres esta pestaña mientras termina la solicitud.</small>
+      </section>
+    </div>
+  );
+}
 
 function CreateDesignThinkingScenarioPage() {
   const navigate = useNavigate();
@@ -29,9 +56,13 @@ function CreateDesignThinkingScenarioPage() {
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [creationMode, setCreationMode] = useState("manual");
+  const [creationMode, setCreationMode] = useState("Manual");
+  const [aiDraft, setAiDraft] = useState(null);
   const [phaseWeights, setPhaseWeights] = useState([]);
   const [showExperiencePreview, setShowExperiencePreview] = useState(false);
+  const [requestError, setRequestError] = useState(null);
+  const requestCoordinator = useRef(createScenarioRequestCoordinator());
+  const draftAbortController = useRef(null);
 
   const selectedMethodology = methodologies.find(
     (methodology) => methodology.code === form.methodologyCode
@@ -82,6 +113,11 @@ function CreateDesignThinkingScenarioPage() {
     loadMethodologies();
   }, []);
 
+  useEffect(() => () => {
+    draftAbortController.current?.abort();
+    requestCoordinator.current.invalidateDraft();
+  }, []);
+
   useEffect(() => {
     if (!selectedMethodology?.phases?.length) {
       setPhaseWeights([]);
@@ -101,6 +137,15 @@ function CreateDesignThinkingScenarioPage() {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+
+    if (name === "methodologyCode" && value !== form.methodologyCode) {
+      draftAbortController.current?.abort();
+      requestCoordinator.current.invalidateDraft();
+      setIsGenerating(false);
+      setCreationMode("Manual");
+      setAiDraft(null);
+      setRequestError(null);
+    }
 
     setForm((prev) => ({
       ...prev,
@@ -137,26 +182,25 @@ function CreateDesignThinkingScenarioPage() {
     );
   };
 
-  const getRequestErrorMessage = (error, fallbackMessage) => {
-    const responseData = error?.response?.data;
-
-    if (typeof responseData === "string" && responseData.trim()) {
-      return responseData;
-    }
-
-    if (typeof responseData?.message === "string") {
-      return responseData.message;
-    }
-
-    return fallbackMessage;
+  const selectManualMode = () => {
+    draftAbortController.current?.abort();
+    requestCoordinator.current.invalidateDraft();
+    setIsGenerating(false);
+    setCreationMode("Manual");
+    setAiDraft(null);
+    setMessage("");
+    setRequestError(null);
   };
 
   const generateScenarioWithAi = async () => {
-    if (isGenerating) return;
+    const requestId = requestCoordinator.current.beginDraft();
+    if (requestId === null) return;
 
+    const abortController = new AbortController();
+    draftAbortController.current = abortController;
     setIsGenerating(true);
-    setCreationMode("ai");
     setMessage("");
+    setRequestError(null);
 
     try {
       const token = getToken();
@@ -164,16 +208,23 @@ function CreateDesignThinkingScenarioPage() {
       const response = await api.post(
         "/design-thinking/scenarios/generate-draft",
         {
-          methodology: form.methodologyCode,
+          methodologyCode: form.methodologyCode,
         },
         {
           headers: {
             Authorization: `Bearer ${token}`,
           },
+          signal: abortController.signal,
         }
       );
 
+      if (!requestCoordinator.current.isCurrentDraft(requestId)) return;
+
       const generated = response.data;
+
+      if (!generated.generatedByAi || !generated.generationId) {
+        throw new Error("El backend no confirmó una generación válida con OpenRouter.");
+      }
 
       setForm((prev) => ({
         ...prev,
@@ -186,21 +237,33 @@ function CreateDesignThinkingScenarioPage() {
         difficulty: generated.difficulty || "Media",
       }));
 
+      setCreationMode("AiAssisted");
+      setAiDraft(generated);
+
       setMessage(
-        "Escenario generado correctamente. Revisa los campos, configura disponibilidad e intentos, y luego créalo."
+        "Borrador generado con OpenRouter. Revisa el contenido antes de crear el escenario."
       );
     } catch (error) {
-      console.error("Error generando escenario:", error);
-
-      if (error.response) {
-        setMessage(
-          `Error ${error.response.status}: ${JSON.stringify(error.response.data)}`
-        );
-      } else {
-        setMessage("No hubo respuesta del backend.");
+      if (
+        abortController.signal.aborted ||
+        !requestCoordinator.current.isCurrentDraft(requestId)
+      ) {
+        return;
       }
+      console.error("Error generando escenario:", error);
+      const parsedError = parseScenarioRequestError(
+        error,
+        "No se pudo generar el borrador con OpenRouter. Intenta nuevamente."
+      );
+      setAiDraft((previousDraft) => retainValidDraftAfterFailure(previousDraft));
+      setRequestError(parsedError);
+      setMessage(parsedError.message);
     } finally {
-      setIsGenerating(false);
+      if (requestCoordinator.current.isCurrentDraft(requestId)) {
+        requestCoordinator.current.finishDraft(requestId);
+        setIsGenerating(false);
+        draftAbortController.current = null;
+      }
     }
   };
 
@@ -221,23 +284,31 @@ function CreateDesignThinkingScenarioPage() {
         phaseWeight: Number(phase.phaseWeight || 0),
         isEnabled: true,
       })),
+      creationMode,
+      aiDraftGenerationId: resolveAiDraftGenerationId(creationMode, aiDraft),
     };
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (isSubmitting) return;
+    if (!requestCoordinator.current.beginCreation()) return;
 
     if (!isPhaseDistributionValid) {
       setMessage(
         `No se puede crear el escenario. ${phaseWeightMessage}.`
       );
+      requestCoordinator.current.finishCreation();
       return;
     }
 
     setIsSubmitting(true);
-    setMessage("");
+    setRequestError(null);
+    setMessage(
+      creationMode === "AiAssisted"
+        ? "Generando opciones para las fases..."
+        : ""
+    );
 
     try {
       const token = getToken();
@@ -248,20 +319,25 @@ function CreateDesignThinkingScenarioPage() {
         },
       });
 
-      setMessage("Escenario creado correctamente");
+      setMessage(
+        creationMode === "AiAssisted"
+          ? "Escenario y opciones generados correctamente con OpenRouter."
+          : "El escenario fue guardado como borrador. Antes de publicarlo debe agregar o generar opciones."
+      );
 
       setTimeout(() => {
         navigate(`/design-thinking/scenarios/${response.data.id}`);
       }, 700);
     } catch (error) {
       console.error("Error creando escenario:", error);
-      setMessage(
-        getRequestErrorMessage(
-          error,
-          "No se pudo crear el escenario. Verifica la conexion e intenta nuevamente."
-        )
+      const parsedError = parseScenarioRequestError(
+        error,
+        "No se pudo crear el escenario. Verifica la conexión e intenta nuevamente."
       );
+      setRequestError(parsedError);
+      setMessage(parsedError.message);
     } finally {
+      requestCoordinator.current.finishCreation();
       setIsSubmitting(false);
     }
   };
@@ -286,37 +362,17 @@ function CreateDesignThinkingScenarioPage() {
       </div>
 
       {message && <div className="message pro-message">{message}</div>}
+      {requestError?.detail && (
+        <div className="ai-error-detail" role="alert">
+          <span>{requestError.detail}</span>
+          {requestError.correlationId && (
+            <small>Referencia de diagnóstico: {requestError.correlationId}</small>
+          )}
+        </div>
+      )}
 
       <div className="pro-layout-2">
         <div className="pro-card">
-          <div className="scenario-mode-panel compact">
-            <button
-              type="button"
-              className={
-                creationMode === "manual"
-                  ? "scenario-mode-button active"
-                  : "scenario-mode-button"
-              }
-              onClick={() => setCreationMode("manual")}
-            >
-              <span>Manual</span>
-              <strong>Completar campos</strong>
-            </button>
-
-            <button
-              type="button"
-              className={
-                creationMode === "ai"
-                  ? "scenario-mode-button active"
-                  : "scenario-mode-button"
-              }
-              onClick={() => setCreationMode("ai")}
-            >
-              <span>IA</span>
-              <strong>Generar borrador</strong>
-            </button>
-          </div>
-
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label>Metodología</label>
@@ -334,23 +390,35 @@ function CreateDesignThinkingScenarioPage() {
               </select>
             </div>
 
-            <div className="generate-ai-box compact">
-              <div>
-                <h3>Generar escenario con IA</h3>
-                <p>
-                  Selecciona una metodología y genera automáticamente un caso de
-                  transformación digital. Luego puedes editarlo antes de guardarlo.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={generateScenarioWithAi}
-                disabled={isGenerating}
-              >
-                {isGenerating ? "Generando..." : "Generar escenario"}
-              </button>
+            <div className="scenario-creation-actions" aria-label="Modo de creación">
+              {CREATION_MODE_ACTIONS.map((action) => (
+                <button
+                  key={action.mode}
+                  type="button"
+                  className={
+                    creationMode === action.mode
+                      ? "scenario-creation-action active"
+                      : "scenario-creation-action"
+                  }
+                  onClick={
+                    action.mode === "Manual"
+                      ? selectManualMode
+                      : generateScenarioWithAi
+                  }
+                  disabled={isGenerating || isSubmitting}
+                  aria-pressed={creationMode === action.mode}
+                >
+                  {action.label}
+                </button>
+              ))}
             </div>
+
+            {aiDraft?.generatedByAi && creationMode === "AiAssisted" && (
+              <p className="ai-draft-status">
+                Borrador IA listo. Revísalo antes de crear el escenario; las opciones
+                se generarán al guardar.
+              </p>
+            )}
 
             <div className="form-group">
               <label>Título</label>
@@ -494,7 +562,7 @@ function CreateDesignThinkingScenarioPage() {
             <button
               className="primary-action"
               type="submit"
-              disabled={isSubmitting || !isPhaseDistributionValid}
+              disabled={isSubmitting || isGenerating || !isPhaseDistributionValid}
             >
               {isSubmitting ? "Creando..." : "Crear escenario"}
             </button>
@@ -649,6 +717,28 @@ function CreateDesignThinkingScenarioPage() {
           </div>
         </div>
       </div>
+
+      {isGenerating && (
+        <AiLoadingModal
+          title="Generando borrador con IA"
+          message="OpenRouter está preparando un caso empresarial para la metodología seleccionada."
+        />
+      )}
+
+      {isSubmitting && (
+        <AiLoadingModal
+          title={
+            creationMode === "AiAssisted"
+              ? "Creando escenario con IA"
+              : "Guardando escenario"
+          }
+          message={
+            creationMode === "AiAssisted"
+              ? "Generando opciones, validando las fases y preparando el escenario."
+              : "Validando la configuración y guardando el borrador."
+          }
+        />
+      )}
     </div>
   );
 }

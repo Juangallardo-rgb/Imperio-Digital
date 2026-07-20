@@ -26,6 +26,10 @@
 
         public bool AllowLateAttempts { get; set; } = false;
 
+        public string CreationMode { get; set; } = "Manual";
+
+        public Guid? AiDraftGenerationId { get; set; }
+
         public List<CreateScenarioPhaseSettingDto> PhaseSettings { get; set; } = new();
     }
 

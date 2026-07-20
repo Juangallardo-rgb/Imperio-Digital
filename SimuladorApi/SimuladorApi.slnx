@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="SimuladorApi.csproj" />
+  <Project Path="..\SimuladorApi.Tests\SimuladorApi.Tests.csproj" />
 </Solution>

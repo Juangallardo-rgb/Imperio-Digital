@@ -5,6 +5,30 @@ namespace SimuladorApi.Services
 {
     public class KpiSimulationService
     {
+        public const decimal InitialBudget = 100;
+        public const decimal InitialTimeWeeks = 8;
+        public const decimal MinimumOptionCost = 0;
+        public const decimal MaximumOptionCost = InitialBudget;
+        public const decimal MinimumOptionTimeCost = 0;
+        public const decimal MaximumOptionTimeCost = InitialTimeWeeks;
+        public const decimal MinimumOptionRiskImpact = -20;
+        public const decimal MaximumOptionRiskImpact = 20;
+        public const decimal MinimumKpiImpact = -25;
+        public const decimal MaximumKpiImpact = 25;
+
+        public static IReadOnlySet<string> GetAllowedKpiKeys(string methodologyCode)
+        {
+            var keys = methodologyCode switch
+            {
+                "BPM" => new[] { "processEfficiency", "cycleTime", "errorRate", "satisfaction", "digitalAdoption" },
+                "DigitalMaturity" => new[] { "digitalMaturity", "processEfficiency", "dataUsage", "satisfaction", "digitalAdoption" },
+                "LeanStartup" => new[] { "validatedLearning", "conversionRate", "satisfaction", "experimentVelocity", "digitalAdoption" },
+                _ => new[] { "cartAbandonment", "conversionRate", "satisfaction", "purchaseTime", "digitalAdoption" }
+            };
+
+            return new HashSet<string>(keys, StringComparer.Ordinal);
+        }
+
         public Dictionary<string, decimal> GetDefaultInitialKpis(string methodologyCode = "DesignThinking")
         {
             return methodologyCode switch

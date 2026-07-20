@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../api/api";
+import { getApiErrorMessage } from "../api/apiErrors";
 import AppIcon from "../components/AppIcon";
 import logo from "../assets/imperio-logo.png";
 import { getToken, saveToken } from "../utils/auth";
@@ -43,13 +44,7 @@ function LoginPage() {
 
       navigate("/dashboard", { replace: true });
     } catch (error) {
-      if (error.response) {
-        setMessage(`Error ${error.response.status}: ${JSON.stringify(error.response.data)}`);
-      } else if (error.request) {
-        setMessage("No hubo respuesta del backend.");
-      } else {
-        setMessage(`Error: ${error.message}`);
-      }
+      setMessage(getApiErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -60,15 +55,11 @@ function LoginPage() {
       <section className="login-intro" aria-labelledby="login-intro-title">
         <div className="login-brand">
           <img src={logo} alt="Imperio Digital" />
-          <div>
-            <strong>Imperio Digital</strong>
-            <span>Transformación empresarial</span>
-          </div>
         </div>
 
         <div className="login-intro-content">
           <span className="login-kicker">Simulación académica</span>
-          <h1 id="login-intro-title">Experimenta la transformación digital</h1>
+          <h1 id="login-intro-title">Aprende tomando decisiones</h1>
           <p>
             Toma decisiones estratégicas y observa su impacto en tiempo real.
             Aprende con escenarios, indicadores y retroalimentación aplicada.

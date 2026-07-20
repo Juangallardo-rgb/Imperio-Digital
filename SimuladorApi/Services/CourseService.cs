@@ -6,6 +6,7 @@ using SimuladorApi.DTOs.DesignThinking;
 using Microsoft.AspNetCore.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace SimuladorApi.Services
@@ -14,6 +15,8 @@ namespace SimuladorApi.Services
     {
         private const int MaxImportRows = 200;
         private const long MaxCsvFileBytes = 512 * 1024;
+        private const decimal DevelopingPerformanceThreshold = 60;
+        private const decimal GoodPerformanceThreshold = 80;
 
         private readonly AppDbContext _context;
         private readonly IRealtimeNotificationService _realtime;
@@ -534,6 +537,225 @@ namespace SimuladorApi.Services
                 }).ToList()
             };
         }
+
+        public async Task<CourseResultsAnalyticsDto?> GetCourseResultsAnalyticsAsync(
+            int courseId,
+            int teacherId)
+        {
+            var course = await _context.Courses
+                .AsNoTracking()
+                .AsSplitQuery()
+                .Include(c => c.Enrollments)
+                    .ThenInclude(e => e.Student)
+                .Include(c => c.CourseScenarios)
+                    .ThenInclude(cs => cs.Scenario)
+                        .ThenInclude(s => s!.PhaseSettings)
+                .FirstOrDefaultAsync(c => c.Id == courseId && c.TeacherId == teacherId);
+
+            if (course == null)
+                return null;
+
+            var studentIds = course.Enrollments
+                .Select(enrollment => enrollment.StudentId)
+                .ToList();
+
+            var scenarioIds = course.CourseScenarios
+                .Select(assignment => assignment.ScenarioId)
+                .ToList();
+
+            var attempts = studentIds.Count == 0 || scenarioIds.Count == 0
+                ? new List<SimulationAttempt>()
+                : await _context.SimulationAttempts
+                    .AsNoTracking()
+                    .Include(attempt => attempt.PhaseResponses)
+                    .Where(attempt =>
+                        attempt.CourseId == courseId &&
+                        studentIds.Contains(attempt.StudentId) &&
+                        scenarioIds.Contains(attempt.ScenarioId))
+                    .ToListAsync();
+
+            var enrolledStudents = course.Enrollments
+                .OrderBy(enrollment => enrollment.Student?.Name ?? string.Empty)
+                .ThenBy(enrollment => enrollment.Student?.Email ?? string.Empty)
+                .ToList();
+
+            var scenarioAnalytics = course.CourseScenarios
+                .Where(assignment => assignment.Scenario != null)
+                .OrderBy(assignment => assignment.AssignedAt)
+                .Select(assignment =>
+                {
+                    var scenario = assignment.Scenario!;
+                    var scenarioAttempts = attempts
+                        .Where(attempt => attempt.ScenarioId == scenario.Id)
+                        .ToList();
+
+                    var phaseDefinitions = GetScenarioPhaseDefinitions(
+                        scenario,
+                        scenarioAttempts.SelectMany(attempt => attempt.PhaseResponses)
+                    );
+
+                    var latestAttemptsByStudent = scenarioAttempts
+                        .GroupBy(attempt => attempt.StudentId)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => group
+                                .OrderByDescending(attempt => attempt.StartedAt)
+                                .ThenByDescending(attempt => attempt.Id)
+                                .First()
+                        );
+
+                    var latestCompletedByStudent = scenarioAttempts
+                        .Where(attempt => IsFinished(attempt.Status))
+                        .GroupBy(attempt => attempt.StudentId)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => group
+                                .OrderByDescending(attempt => attempt.FinishedAt ?? attempt.StartedAt)
+                                .ThenByDescending(attempt => attempt.Id)
+                                .First()
+                        );
+
+                    var phaseAnalytics = phaseDefinitions
+                        .Select(phase =>
+                        {
+                            var scores = latestCompletedByStudent.Values
+                                .Select(attempt => FindPhaseResponse(attempt, phase.MatchName))
+                                .Where(response => response != null)
+                                .Select(response => response!.Score)
+                                .ToList();
+
+                            return new PhaseAnalyticsDto
+                            {
+                                PhaseName = phase.DisplayName,
+                                PhaseOrder = phase.Order,
+                                AverageScore = scores.Count > 0
+                                    ? Math.Round(scores.Average(), 2)
+                                    : null,
+                                StudentsEvaluated = scores.Count,
+                                ReinforcementCount = scores.Count(score =>
+                                    score < DevelopingPerformanceThreshold),
+                                DevelopingCount = scores.Count(score =>
+                                    score >= DevelopingPerformanceThreshold &&
+                                    score < GoodPerformanceThreshold),
+                                GoodPerformanceCount = scores.Count(score =>
+                                    score >= GoodPerformanceThreshold)
+                            };
+                        })
+                        .ToList();
+
+                    var phasesWithResults = phaseAnalytics
+                        .Where(phase => phase.AverageScore.HasValue)
+                        .ToList();
+
+                    var strongestPhase = phasesWithResults
+                        .OrderByDescending(phase => phase.AverageScore)
+                        .ThenBy(phase => phase.PhaseOrder)
+                        .FirstOrDefault();
+
+                    var phaseToReinforce = phasesWithResults
+                        .OrderBy(phase => phase.AverageScore)
+                        .ThenBy(phase => phase.PhaseOrder)
+                        .FirstOrDefault();
+
+                    var studentResults = enrolledStudents
+                        .Select(enrollment =>
+                        {
+                            var studentAttempts = scenarioAttempts
+                                .Where(attempt => attempt.StudentId == enrollment.StudentId)
+                                .OrderByDescending(attempt => attempt.StartedAt)
+                                .ThenByDescending(attempt => attempt.Id)
+                                .ToList();
+
+                            var latestAttempt = studentAttempts.FirstOrDefault();
+                            latestCompletedByStudent.TryGetValue(
+                                enrollment.StudentId,
+                                out var latestCompletedAttempt
+                            );
+
+                            return new StudentScenarioResultDto
+                            {
+                                StudentId = enrollment.StudentId,
+                                StudentName = enrollment.Student?.Name ?? string.Empty,
+                                StudentEmail = enrollment.Student?.Email ?? string.Empty,
+                                AttemptCount = studentAttempts.Count,
+                                LatestAttemptId = latestAttempt?.Id,
+                                ReportAttemptId = latestCompletedAttempt?.Id ?? latestAttempt?.Id,
+                                LatestAttemptStatus = latestAttempt?.Status ?? "NotStarted",
+                                LatestAttemptStartedAt = latestAttempt?.StartedAt,
+                                LatestAttemptFinishedAt = latestAttempt?.FinishedAt,
+                                LatestCompletedScore = latestCompletedAttempt?.FinalScore,
+                                PhaseResults = latestCompletedAttempt == null
+                                    ? new List<StudentPhaseResultDto>()
+                                    : phaseDefinitions
+                                        .Select(phase => new
+                                        {
+                                            Phase = phase,
+                                            Response = FindPhaseResponse(
+                                                latestCompletedAttempt,
+                                                phase.MatchName
+                                            )
+                                        })
+                                        .Where(item => item.Response != null)
+                                        .Select(item => new StudentPhaseResultDto
+                                        {
+                                            PhaseName = item.Phase.DisplayName,
+                                            PhaseOrder = item.Phase.Order,
+                                            Score = item.Response!.Score
+                                        })
+                                        .ToList()
+                            };
+                        })
+                        .ToList();
+
+                    var startedStudents = latestAttemptsByStudent.Count;
+                    var completedStudents = latestCompletedByStudent.Count;
+                    var inProgressStudents = latestAttemptsByStudent.Values
+                        .Count(attempt => !IsFinished(attempt.Status));
+
+                    return new CourseScenarioAnalyticsDto
+                    {
+                        ScenarioId = scenario.Id,
+                        ScenarioTitle = string.IsNullOrWhiteSpace(scenario.Title)
+                            ? scenario.Name
+                            : scenario.Title,
+                        MethodologyCode = scenario.Methodology,
+                        MethodologyName = GetMethodologyName(scenario.Methodology),
+                        TotalStudents = course.Enrollments.Count,
+                        StartedStudents = startedStudents,
+                        CompletedStudents = completedStudents,
+                        InProgressStudents = inProgressStudents,
+                        CompletionRate = startedStudents > 0
+                            ? Math.Round(
+                                (decimal)completedStudents / startedStudents * 100,
+                                2
+                            )
+                            : 0,
+                        AverageScore = latestCompletedByStudent.Count > 0
+                            ? Math.Round(
+                                latestCompletedByStudent.Values.Average(attempt =>
+                                    attempt.FinalScore),
+                                2
+                            )
+                            : null,
+                        StrongestPhase = strongestPhase?.PhaseName ?? string.Empty,
+                        PhaseToReinforce = phaseToReinforce?.PhaseName ?? string.Empty,
+                        PhaseAnalytics = phaseAnalytics,
+                        Students = studentResults
+                    };
+                })
+                .ToList();
+
+            return new CourseResultsAnalyticsDto
+            {
+                CourseId = course.Id,
+                CourseName = course.Name,
+                CourseCode = course.Code,
+                TotalStudents = course.Enrollments.Count,
+                TotalScenarios = scenarioAnalytics.Count,
+                Scenarios = scenarioAnalytics
+            };
+        }
+
         public async Task<TeacherDashboardAnalyticsDto> GetTeacherDashboardAnalyticsAsync(int teacherId)
         {
             var courses = await _context.Courses
@@ -668,10 +890,10 @@ namespace SimuladorApi.Services
                 LowPerformanceCourses = lowPerformanceCourses
             };
         }
-        public async Task<SimulationResultsDto?> GetAttemptResultsForTeacherAsync(
-    int courseId,
-    int attemptId,
-    int teacherId)
+        public async Task<TeacherAttemptReportDto?> GetAttemptResultsForTeacherAsync(
+            int courseId,
+            int attemptId,
+            int teacherId)
         {
             var courseExists = await _context.Courses
                 .AnyAsync(c => c.Id == courseId && c.TeacherId == teacherId);
@@ -680,43 +902,129 @@ namespace SimuladorApi.Services
                 return null;
 
             var attempt = await _context.SimulationAttempts
+                .AsNoTracking()
+                .AsSplitQuery()
+                .Include(a => a.Student)
                 .Include(a => a.Scenario)
                     .ThenInclude(s => s!.PhaseSettings)
+                .Include(a => a.Scenario)
+                    .ThenInclude(s => s!.Options)
                 .Include(a => a.PhaseResponses)
+                    .ThenInclude(response => response.Answers)
                 .Include(a => a.KpiResults)
                 .FirstOrDefaultAsync(a => a.Id == attemptId && a.CourseId == courseId);
 
             if (attempt == null || attempt.Scenario == null)
                 return null;
 
-            var phaseOrder = attempt.Scenario.PhaseSettings
-                .Where(p => p.IsEnabled)
-                .OrderBy(p => p.PhaseOrder)
-                .Select(p => p.PhaseName)
+            var isCompleteReport = IsFinished(attempt.Status);
+            var phaseDefinitions = GetScenarioPhaseDefinitions(
+                attempt.Scenario,
+                attempt.PhaseResponses
+            );
+
+            var phaseScores = attempt.PhaseResponses
+                .OrderBy(response => GetPhaseSortOrder(
+                    response.PhaseName,
+                    phaseDefinitions
+                ))
+                .Select(response => new PhaseScoreDto
+                {
+                    PhaseName = GetPhaseDisplayName(
+                        response.PhaseName,
+                        phaseDefinitions
+                    ),
+                    Score = response.Score,
+                    Feedback = response.Feedback
+                })
                 .ToList();
 
-            return new SimulationResultsDto
+            var phaseReviews = isCompleteReport
+                ? attempt.PhaseResponses
+                    .OrderBy(response => GetPhaseSortOrder(
+                        response.PhaseName,
+                        phaseDefinitions
+                    ))
+                    .Select(response =>
+                    {
+                        var selectionAnswer = response.Answers.FirstOrDefault(answer =>
+                            string.Equals(
+                                answer.QuestionType,
+                                "Selection",
+                                StringComparison.OrdinalIgnoreCase
+                            ));
+
+                        var textAnswer = response.Answers.FirstOrDefault(answer =>
+                            string.Equals(
+                                answer.QuestionType,
+                                "Text",
+                                StringComparison.OrdinalIgnoreCase
+                            ));
+
+                        var options = BuildCourseOptionReviews(
+                            selectionAnswer,
+                            attempt.Scenario.Options,
+                            response.PhaseName);
+
+                        return new PhaseAnswerReviewDto
+                        {
+                            PhaseName = GetPhaseDisplayName(
+                                response.PhaseName,
+                                phaseDefinitions
+                            ),
+                            SelectionScore = selectionAnswer?.Score ?? 0,
+                            SelectionFeedback = selectionAnswer?.Feedback ?? string.Empty,
+                            TextAnswer = textAnswer?.TextAnswer ?? string.Empty,
+                            TextAnswerScore = textAnswer?.Score ?? 0,
+                            TextAnswerFeedback = textAnswer?.Feedback ?? string.Empty,
+                            Options = options
+                        };
+                    })
+                    .ToList()
+                : new List<PhaseAnswerReviewDto>();
+
+            var relatedAttempts = await _context.SimulationAttempts
+                .AsNoTracking()
+                .Where(relatedAttempt =>
+                    relatedAttempt.CourseId == courseId &&
+                    relatedAttempt.StudentId == attempt.StudentId &&
+                    relatedAttempt.ScenarioId == attempt.ScenarioId)
+                .OrderByDescending(relatedAttempt => relatedAttempt.StartedAt)
+                .ThenByDescending(relatedAttempt => relatedAttempt.Id)
+                .ToListAsync();
+
+            var strongestPhase = phaseScores
+                .OrderByDescending(phase => phase.Score)
+                .FirstOrDefault();
+
+            var phaseToReinforce = phaseScores
+                .OrderBy(phase => phase.Score)
+                .FirstOrDefault();
+
+            return new TeacherAttemptReportDto
             {
                 AttemptId = attempt.Id,
-                ScenarioTitle = attempt.Scenario.Title,
+                StudentId = attempt.StudentId,
+                StudentName = attempt.Student?.Name ?? string.Empty,
+                StudentEmail = attempt.Student?.Email ?? string.Empty,
+                ScenarioId = attempt.ScenarioId,
+                ScenarioTitle = string.IsNullOrWhiteSpace(attempt.Scenario.Title)
+                    ? attempt.Scenario.Name
+                    : attempt.Scenario.Title,
                 MethodologyCode = attempt.Scenario.Methodology,
                 MethodologyName = GetMethodologyName(attempt.Scenario.Methodology),
                 Status = attempt.Status,
-                FinalScore = attempt.FinalScore,
-                FinalFeedback = attempt.FinalFeedback,
-                PhaseScores = attempt.PhaseResponses
-                    .OrderBy(p =>
-                    {
-                        var phaseIndex = phaseOrder.IndexOf(p.PhaseName);
-                        return phaseIndex < 0 ? int.MaxValue : phaseIndex;
-                    })
-                    .Select(p => new PhaseScoreDto
-                    {
-                        PhaseName = p.PhaseName,
-                        Score = p.Score,
-                        Feedback = p.Feedback
-                    })
-                    .ToList(),
+                StartedAt = attempt.StartedAt,
+                FinishedAt = attempt.FinishedAt,
+                FinalScore = isCompleteReport ? attempt.FinalScore : null,
+                FinalFeedback = isCompleteReport
+                    ? attempt.FinalFeedback
+                    : string.Empty,
+                StrongestPhase = strongestPhase?.PhaseName ?? string.Empty,
+                PhaseToReinforce = phaseToReinforce?.PhaseName ?? string.Empty,
+                IsCompleteReport = isCompleteReport,
+                PhaseScores = phaseScores,
+                PhaseReviews = phaseReviews,
                 KpiResults = attempt.KpiResults
                     .Select(k => new KpiResultDto
                     {
@@ -724,6 +1032,18 @@ namespace SimuladorApi.Services
                         InitialValue = k.InitialValue,
                         FinalValue = k.FinalValue,
                         Unit = k.Unit
+                    })
+                    .ToList(),
+                Attempts = relatedAttempts
+                    .Select(relatedAttempt => new TeacherAttemptSummaryDto
+                    {
+                        AttemptId = relatedAttempt.Id,
+                        Status = relatedAttempt.Status,
+                        StartedAt = relatedAttempt.StartedAt,
+                        FinishedAt = relatedAttempt.FinishedAt,
+                        FinalScore = IsFinished(relatedAttempt.Status)
+                            ? relatedAttempt.FinalScore
+                            : null
                     })
                     .ToList()
             };
@@ -1079,6 +1399,172 @@ namespace SimuladorApi.Services
             );
         }
 
+        private static List<ScenarioPhaseDefinition> GetScenarioPhaseDefinitions(
+            Scenario scenario,
+            IEnumerable<SimulationPhaseResponse> fallbackResponses)
+        {
+            var configuredPhases = scenario.PhaseSettings
+                .Where(phase => phase.IsEnabled)
+                .OrderBy(phase => phase.PhaseOrder)
+                .Select(phase => new ScenarioPhaseDefinition(
+                    phase.PhaseName,
+                    string.IsNullOrWhiteSpace(phase.CustomName)
+                        ? phase.PhaseName
+                        : phase.CustomName,
+                    phase.PhaseOrder
+                ))
+                .ToList();
+
+            if (configuredPhases.Count > 0)
+                return configuredPhases;
+
+            return fallbackResponses
+                .OrderBy(response => response.SubmittedAt)
+                .GroupBy(response => NormalizePhaseName(response.PhaseName))
+                .Select((group, index) => new ScenarioPhaseDefinition(
+                    group.First().PhaseName,
+                    group.First().PhaseName,
+                    index + 1
+                ))
+                .ToList();
+        }
+
+        private static SimulationPhaseResponse? FindPhaseResponse(
+            SimulationAttempt attempt,
+            string phaseName)
+        {
+            var normalizedPhaseName = NormalizePhaseName(phaseName);
+
+            return attempt.PhaseResponses.FirstOrDefault(response =>
+                NormalizePhaseName(response.PhaseName) == normalizedPhaseName);
+        }
+
+        private static int GetPhaseSortOrder(
+            string phaseName,
+            List<ScenarioPhaseDefinition> phaseDefinitions)
+        {
+            var normalizedPhaseName = NormalizePhaseName(phaseName);
+            var phase = phaseDefinitions.FirstOrDefault(definition =>
+                NormalizePhaseName(definition.MatchName) == normalizedPhaseName);
+
+            return phase?.Order ?? int.MaxValue;
+        }
+
+        private static string GetPhaseDisplayName(
+            string phaseName,
+            List<ScenarioPhaseDefinition> phaseDefinitions)
+        {
+            var normalizedPhaseName = NormalizePhaseName(phaseName);
+            var phase = phaseDefinitions.FirstOrDefault(definition =>
+                NormalizePhaseName(definition.MatchName) == normalizedPhaseName);
+
+            return phase?.DisplayName ?? phaseName;
+        }
+
+        private static HashSet<int> DeserializeSelectedOptionIds(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return new HashSet<int>();
+
+            try
+            {
+                return JsonSerializer.Deserialize<List<int>>(value)?.ToHashSet()
+                    ?? new HashSet<int>();
+            }
+            catch (JsonException)
+            {
+                return new HashSet<int>();
+            }
+        }
+
+        private static List<OptionAnswerReviewDto> BuildCourseOptionReviews(
+            SimulationAnswer? selectionAnswer,
+            IReadOnlyCollection<ScenarioOption> currentOptions,
+            string phaseName)
+        {
+            var snapshots = DeserializeSelectedOptionSnapshots(
+                selectionAnswer?.SelectedOptionsSnapshotJson);
+            if (snapshots.Count > 0)
+            {
+                var selectedIds = snapshots.Select(snapshot => snapshot.OptionId).ToHashSet();
+                var selected = snapshots.Select(snapshot => new OptionAnswerReviewDto
+                {
+                    OptionId = snapshot.OptionId,
+                    OptionType = snapshot.OptionType,
+                    Text = snapshot.Text,
+                    Score = snapshot.Score,
+                    WasSelected = true,
+                    IsCorrect = snapshot.IsCorrect,
+                    ImpactJson = snapshot.ImpactJson,
+                    TagsJson = snapshot.TagsJson,
+                    Cost = snapshot.Cost,
+                    TimeCost = snapshot.TimeCost,
+                    RiskImpact = snapshot.RiskImpact
+                });
+                var omittedCorrect = currentOptions
+                    .Where(option => NormalizePhaseName(option.PhaseName) == NormalizePhaseName(phaseName))
+                    .Where(option => option.IsCorrect && !selectedIds.Contains(option.Id))
+                    .OrderBy(option => option.OrderIndex)
+                    .Select(option => MapCurrentOptionReview(option, false));
+                return selected.Concat(omittedCorrect).ToList();
+            }
+
+            var selectedOptionIds = DeserializeSelectedOptionIds(selectionAnswer?.SelectedOptionIdsJson);
+            return currentOptions
+                .Where(option => NormalizePhaseName(option.PhaseName) == NormalizePhaseName(phaseName))
+                .Where(option => selectedOptionIds.Contains(option.Id) || option.IsCorrect)
+                .OrderBy(option => option.OrderIndex)
+                .Select(option => MapCurrentOptionReview(option, selectedOptionIds.Contains(option.Id)))
+                .ToList();
+        }
+
+        private static OptionAnswerReviewDto MapCurrentOptionReview(
+            ScenarioOption option,
+            bool wasSelected) =>
+            new()
+            {
+                OptionId = option.Id,
+                OptionType = option.OptionType,
+                Text = option.Text,
+                Score = option.Score,
+                WasSelected = wasSelected,
+                IsCorrect = option.IsCorrect,
+                ImpactJson = option.ImpactJson,
+                TagsJson = option.TagsJson,
+                Cost = option.Cost,
+                TimeCost = option.TimeCost,
+                RiskImpact = option.RiskImpact,
+                ExpectedImpactLevel = option.ExpectedImpactLevel,
+                ExpectedEffortLevel = option.ExpectedEffortLevel,
+                ExpectedViabilityLevel = option.ExpectedViabilityLevel
+            };
+
+        private static List<SelectedOptionSnapshotDto> DeserializeSelectedOptionSnapshots(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return new List<SelectedOptionSnapshotDto>();
+            try
+            {
+                return JsonSerializer.Deserialize<List<SelectedOptionSnapshotDto>>(value)
+                    ?? new List<SelectedOptionSnapshotDto>();
+            }
+            catch (JsonException)
+            {
+                return new List<SelectedOptionSnapshotDto>();
+            }
+        }
+
+        private static string NormalizePhaseName(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return new string(value
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
+        }
+
         private static string GenerateTemporaryPassword()
         {
             const string chars =
@@ -1108,6 +1594,11 @@ namespace SimuladorApi.Services
                    normalized == "finalizada" ||
                    normalized == "completed";
         }
+
+        private sealed record ScenarioPhaseDefinition(
+            string MatchName,
+            string DisplayName,
+            int Order);
 
         private static List<MethodologyAverageDto> BuildMethodologyAverages(List<SimulationAttempt> attempts)
         {

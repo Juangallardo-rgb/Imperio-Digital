@@ -38,6 +38,18 @@
 
         public bool IsPublished { get; set; } = false;
 
+        public string CreationMode { get; set; } = "Legacy";
+
+        public bool GeneratedByAi { get; set; }
+
+        public string? AiProvider { get; set; }
+
+        public string? AiModel { get; set; }
+
+        public string? AiPromptVersion { get; set; }
+
+        public DateTime? AiGeneratedAt { get; set; }
+
         public int CreatedByUserId { get; set; }
 
         public User? CreatedByUser { get; set; }
@@ -55,5 +67,7 @@
         public List<ScenarioOption> Options { get; set; } = new();
 
         public List<SimulationAttempt> SimulationAttempts { get; set; } = new();
+
+        public List<AiGenerationRecord> AiGenerationRecords { get; set; } = new();
     }
 }

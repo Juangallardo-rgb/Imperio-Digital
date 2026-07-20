@@ -3,6 +3,7 @@ using SimuladorApi.Data;
 using Microsoft.Extensions.Logging;
 using SimuladorApi.DTOs.DesignThinking;
 using SimuladorApi.Models;
+using SimuladorApi.Services.Ai;
 using System.Diagnostics;
 
 namespace SimuladorApi.Services
@@ -15,6 +16,8 @@ namespace SimuladorApi.Services
         private readonly ScenarioPhaseMappingService _scenarioPhaseMappingService;
         private readonly IRealtimeNotificationService _realtime;
         private readonly ILogger<ScenarioService> _logger;
+        private readonly AiGenerationAuditService _aiGenerationAuditService;
+        private readonly AiScenarioContentValidator _aiScenarioContentValidator;
 
         public ScenarioService(
             AppDbContext context,
@@ -22,6 +25,8 @@ namespace SimuladorApi.Services
             ScenarioOptionTemplateService scenarioOptionTemplateService,
             ScenarioPhaseMappingService scenarioPhaseMappingService,
             IRealtimeNotificationService realtime,
+            AiGenerationAuditService aiGenerationAuditService,
+            AiScenarioContentValidator aiScenarioContentValidator,
             ILogger<ScenarioService> logger)
         {
             _context = context;
@@ -29,6 +34,8 @@ namespace SimuladorApi.Services
             _scenarioOptionTemplateService = scenarioOptionTemplateService;
             _scenarioPhaseMappingService = scenarioPhaseMappingService;
             _realtime = realtime;
+            _aiGenerationAuditService = aiGenerationAuditService;
+            _aiScenarioContentValidator = aiScenarioContentValidator;
             _logger = logger;
         }
 
@@ -37,6 +44,7 @@ namespace SimuladorApi.Services
             int teacherId)
         {
             var methodologyCode = NormalizeMethodologyCode(request.MethodologyCode);
+            var creationMode = NormalizeCreationMode(request.CreationMode);
 
             var methodology = await _context.Methodologies
                 .Include(m => m.Phases)
@@ -68,9 +76,93 @@ namespace SimuladorApi.Services
                 MaxAttemptsPerStudent = request.MaxAttemptsPerStudent <= 0 ? 1 : request.MaxAttemptsPerStudent,
                 AllowLateAttempts = request.AllowLateAttempts,
                 IsPublished = false,
+                CreationMode = creationMode,
+                GeneratedByAi = creationMode == "AiAssisted",
                 CreatedByUserId = teacherId,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
+
+            var phaseSettings = BuildPhaseSettingsFromMethodology(
+                methodology,
+                phaseSettingsByPhaseId);
+            scenario.PhaseSettings = phaseSettings;
+
+            AiGenerationRecord? draftRecord = null;
+            AiGenerationRecord? optionsRecord = null;
+            if (creationMode == "AiAssisted")
+            {
+                if (!request.AiDraftGenerationId.HasValue)
+                {
+                    throw new ArgumentException("Debe generar y revisar un borrador con IA antes de crear el escenario.");
+                }
+                draftRecord = await _aiGenerationAuditService.FindSuccessfulDraftAsync(
+                    request.AiDraftGenerationId.Value,
+                    teacherId,
+                    methodology.Code);
+                if (draftRecord is null)
+                {
+                    throw new ArgumentException("El identificador del borrador IA no es válido, ya fue utilizado o no pertenece al docente autenticado.");
+                }
+
+                optionsRecord = await _aiGenerationAuditService.StartAsync(
+                    teacherId,
+                    "ScenarioOptions",
+                    draftRecord.RequestedModel,
+                    draftRecord.PromptVersion,
+                    methodologyCode: methodology.Code);
+                var generationResult = await _aiScenarioContentService
+                    .GenerateOptionsWithDiagnosticsAsync(scenario, optionsRecord.CorrelationId);
+                if (!generationResult.Success)
+                {
+                    await _aiGenerationAuditService.CompleteAsync(
+                        optionsRecord,
+                        false,
+                        generationResult.EffectiveModel,
+                        generationResult.RetryCount,
+                        generationResult.PromptHash,
+                        errorCode: generationResult.ErrorCode,
+                        errorMessage: generationResult.UserMessage,
+                        responseFormat: generationResult.ResponseFormat);
+                    throw new AiContentGenerationException(
+                        generationResult.FailedPhaseName is null
+                            ? generationResult.UserMessage
+                            : $"No fue posible generar la fase {generationResult.FailedPhaseName}.",
+                        generationResult.ErrorCode,
+                        generationResult.OpenRouterStatusCode,
+                        generationResult.FailedPhaseName,
+                        generationResult.MethodologyCode,
+                        generationResult.CorrelationId,
+                        generationResult.ValidationErrors);
+                }
+
+                scenario.Options = generationResult.Options;
+                scenario.AiProvider = "OpenRouter";
+                scenario.AiModel = generationResult.EffectiveModel ?? generationResult.RequestedModel;
+                scenario.AiPromptVersion = generationResult.PromptVersion;
+                scenario.AiGeneratedAt = DateTime.UtcNow;
+                await _aiGenerationAuditService.CompleteAsync(
+                    optionsRecord,
+                    true,
+                    generationResult.EffectiveModel,
+                    generationResult.RetryCount,
+                    generationResult.PromptHash,
+                    responseFormat: generationResult.ResponseFormat);
+            }
+            else if (creationMode == "Template")
+            {
+                var templateOptions = _scenarioOptionTemplateService
+                    .GenerateBaseOptions(0, methodology.Code)
+                    .ToList();
+                var allOptionsMapped = templateOptions.All(option =>
+                    _scenarioPhaseMappingService.TryMapOptionToEnabledPhase(option, phaseSettings));
+                if (!allOptionsMapped ||
+                    !_scenarioPhaseMappingService.AreOptionsValidForEnabledPhases(templateOptions, phaseSettings))
+                {
+                    throw new ArgumentException("La plantilla explícita no es compatible con la metodología seleccionada.");
+                }
+                scenario.Options = templateOptions;
+            }
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -79,23 +171,47 @@ namespace SimuladorApi.Services
                 _context.Scenarios.Add(scenario);
                 await _context.SaveChangesAsync();
 
-                AddPhaseSettingsFromMethodology(
-                    scenario.Id,
-                    methodology,
-                    phaseSettingsByPhaseId
-                );
-                await _context.SaveChangesAsync();
-
-                await AddScenarioOptionsAsync(scenario.Id, methodology.Code);
-
-                scenario.UpdatedAt = DateTime.UtcNow;
+                foreach (var option in scenario.Options)
+                {
+                    option.ScenarioId = scenario.Id;
+                }
+                if (draftRecord is not null)
+                {
+                    draftRecord.ScenarioId = scenario.Id;
+                    draftRecord.ConsumedAt = DateTime.UtcNow;
+                    draftRecord.Status = "Consumed";
+                }
+                if (optionsRecord is not null)
+                {
+                    optionsRecord.ScenarioId = scenario.Id;
+                }
                 await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
             }
-            catch
+            catch (Exception exception)
             {
                 await transaction.RollbackAsync();
+                if (optionsRecord is not null)
+                {
+                    _context.ChangeTracker.Clear();
+                    var persistedAudit = await _context.AiGenerationRecords
+                        .FirstOrDefaultAsync(record => record.Id == optionsRecord.Id);
+                    if (persistedAudit is not null)
+                    {
+                        persistedAudit.Status = "Failed";
+                        persistedAudit.CompletedAt = DateTime.UtcNow;
+                        persistedAudit.ErrorCode = AiOptionsGenerationErrorCodes.DbSaveError;
+                        persistedAudit.ErrorMessage = "Las opciones fueron válidas, pero no se pudo guardar el escenario.";
+                        await _context.SaveChangesAsync();
+                    }
+                }
+                _logger.LogError(
+                    exception,
+                    "Scenario creation transaction failed. TeacherId={TeacherId} Methodology={Methodology} CreationMode={CreationMode}",
+                    teacherId,
+                    methodology.Code,
+                    creationMode);
                 throw;
             }
 
@@ -462,6 +578,8 @@ namespace SimuladorApi.Services
             var scenario = await _context.Scenarios
                 .Include(s => s.PhaseSettings)
                 .Include(s => s.Options)
+                .Include(s => s.MethodologyCatalog)
+                    .ThenInclude(methodology => methodology!.Phases)
                 .FirstOrDefaultAsync(s => s.Id == scenarioId && s.CreatedByUserId == teacherId);
 
             if (scenario == null)
@@ -493,6 +611,34 @@ namespace SimuladorApi.Services
             if (phasesWithoutOptions.Any())
                 return (false, $"Faltan opciones para estas fases: {string.Join(", ", phasesWithoutOptions)}.");
 
+            var isAiAssisted = scenario.GeneratedByAi && string.Equals(
+                scenario.CreationMode,
+                "AiAssisted",
+                StringComparison.Ordinal);
+            if (isAiAssisted)
+            {
+                var methodology = scenario.MethodologyCatalog;
+                if (methodology is null)
+                {
+                    return (false, "No se pudo validar la metodología del escenario asistido por IA.");
+                }
+
+                var simulationCoverage = _aiScenarioContentValidator.ValidateCoverage(
+                    methodology,
+                    scenario.Options);
+                if (!simulationCoverage.IsValid)
+                {
+                    _logger.LogWarning(
+                        "AI scenario publication rejected. ScenarioId={ScenarioId} Methodology={Methodology} ValidationErrors={ValidationErrors}",
+                        scenario.Id,
+                        scenario.Methodology,
+                        string.Join(" | ", simulationCoverage.Errors.Take(12)));
+                    return (
+                        false,
+                        "Las opciones generadas no respetan los límites de selección, presupuesto o tiempo de la metodología. Regenera las opciones antes de publicar.");
+                }
+            }
+
             if (scenario.AvailableFrom.HasValue &&
                 scenario.AvailableUntil.HasValue &&
                 scenario.AvailableUntil.Value <= scenario.AvailableFrom.Value)
@@ -511,7 +657,7 @@ namespace SimuladorApi.Services
             return (true, "Escenario publicado correctamente.");
         }
 
-        public async Task<(bool Success, string Message)> RegenerateBaseOptionsAsync(int scenarioId, int teacherId)
+        public async Task<(bool Success, string Message, int StatusCode)> RegenerateBaseOptionsAsync(int scenarioId, int teacherId)
         {
             var scenario = await _context.Scenarios
                 .Include(s => s.Options)
@@ -519,7 +665,20 @@ namespace SimuladorApi.Services
                 .FirstOrDefaultAsync(s => s.Id == scenarioId && s.CreatedByUserId == teacherId);
 
             if (scenario == null)
-                return (false, "Escenario no encontrado.");
+                return (false, "Escenario no encontrado.", StatusCodes.Status404NotFound);
+
+            if (scenario.IsPublished)
+            {
+                return (false, "Solo se pueden regenerar opciones de escenarios en borrador.", StatusCodes.Status409Conflict);
+            }
+
+            if (await _context.SimulationAttempts.AnyAsync(attempt => attempt.ScenarioId == scenarioId))
+            {
+                return (
+                    false,
+                    "No se pueden regenerar las opciones porque el escenario ya tiene intentos registrados. Duplique el escenario para crear una nueva versión.",
+                    StatusCodes.Status409Conflict);
+            }
 
             await _scenarioPhaseMappingService.RepairScenarioOptionPhaseMappingsAsync(scenario);
 
@@ -529,7 +688,7 @@ namespace SimuladorApi.Services
                 .ToList();
 
             if (!enabledPhases.Any())
-                return (false, "El escenario no tiene fases activas.");
+                return (false, "El escenario no tiene fases activas.", StatusCodes.Status400BadRequest);
 
             var previousOptionsCount = scenario.Options.Count;
             var regenerationStopwatch = Stopwatch.StartNew();
@@ -560,7 +719,7 @@ namespace SimuladorApi.Services
                     generationResult.OpenRouterResponded,
                     generationResult.OpenRouterStatusCode);
 
-                return (false, generationResult.UserMessage);
+                return (false, generationResult.UserMessage, StatusCodes.Status502BadGateway);
             }
 
             var aiOptions = generationResult.Options;
@@ -601,7 +760,8 @@ namespace SimuladorApi.Services
                     false,
                     string.Equals(scenario.Methodology, "BPM", StringComparison.OrdinalIgnoreCase)
                         ? "La IA no generó opciones válidas para todas las fases BPM. Intenta regenerar nuevamente."
-                        : "La IA respondió con opciones incompletas. Intenta regenerar nuevamente."
+                        : "La IA respondió con opciones incompletas. Intenta regenerar nuevamente.",
+                    StatusCodes.Status502BadGateway
                 );
             }
 
@@ -635,7 +795,7 @@ namespace SimuladorApi.Services
                     AiOptionsGenerationErrorCodes.DbSaveError,
                     previousOptionsCount,
                     aiOptions.Count);
-                return (false, "No se pudieron guardar las opciones generadas. Las opciones anteriores se conservaron.");
+                return (false, "No se pudieron guardar las opciones generadas. Las opciones anteriores se conservaron.", StatusCodes.Status500InternalServerError);
             }
 
             _logger.LogInformation(
@@ -647,7 +807,7 @@ namespace SimuladorApi.Services
                 aiOptions.Count(option => !option.IsCorrect),
                 regenerationStopwatch.Elapsed.TotalMilliseconds);
 
-            return (true, $"Opciones regeneradas con IA correctamente para {GetMethodologyName(scenario.Methodology)}.");
+            return (true, $"Opciones regeneradas con IA correctamente para {GetMethodologyName(scenario.Methodology)}.", StatusCodes.Status200OK);
         }
 
         private async Task AddScenarioOptionsAsync(int scenarioId, string methodologyCode)
@@ -1002,6 +1162,50 @@ namespace SimuladorApi.Services
             _context.ScenarioPhaseSettings.AddRange(scenarioPhases);
         }
 
+        private static List<ScenarioPhaseSetting> BuildPhaseSettingsFromMethodology(
+            Methodology methodology,
+            Dictionary<int, CreateScenarioPhaseSettingDto> requestedPhaseSettings)
+        {
+            return methodology.Phases
+                .Where(phase => phase.IsActive)
+                .OrderBy(phase => phase.PhaseOrder)
+                .Select(phase => new ScenarioPhaseSetting
+                {
+                    MethodologyPhaseId = phase.Id,
+                    PhaseName = phase.Name,
+                    CustomName = phase.Name,
+                    PhaseOrder = phase.PhaseOrder,
+                    PhaseWeight = requestedPhaseSettings[phase.Id].PhaseWeight,
+                    IsEnabled = requestedPhaseSettings[phase.Id].IsEnabled,
+                    Criteria = phase.Criteria
+                        .Where(criteria => criteria.IsActive)
+                        .Select(criteria => new PhaseCriteriaSetting
+                        {
+                            MethodologyPhaseCriteriaId = criteria.Id,
+                            CriterionName = criteria.Name,
+                            CriterionWeight = criteria.DefaultWeight,
+                            EvaluationType = criteria.EvaluationType
+                        })
+                        .ToList()
+                })
+                .ToList();
+        }
+
+        private static string NormalizeCreationMode(string? creationMode)
+        {
+            var value = string.IsNullOrWhiteSpace(creationMode)
+                ? "Manual"
+                : creationMode.Trim();
+            return value switch
+            {
+                "Manual" => "Manual",
+                "AiAssisted" => "AiAssisted",
+                "Template" => "Template",
+                "Legacy" => "Legacy",
+                _ => throw new ArgumentException("El modo de creación debe ser Manual, AiAssisted, Template o Legacy.")
+            };
+        }
+
         private static ScenarioDetailDto MapToDetailDto(Scenario scenario)
         {
             return new ScenarioDetailDto
@@ -1024,6 +1228,12 @@ namespace SimuladorApi.Services
                 AllowLateAttempts = scenario.AllowLateAttempts,
                 CreatedAt = scenario.CreatedAt,
                 UpdatedAt = scenario.UpdatedAt,
+                CreationMode = scenario.CreationMode,
+                GeneratedByAi = scenario.GeneratedByAi,
+                AiProvider = scenario.AiProvider,
+                AiModel = scenario.AiModel,
+                AiPromptVersion = scenario.AiPromptVersion,
+                AiGeneratedAt = scenario.AiGeneratedAt,
 
                 PhaseSettings = scenario.PhaseSettings
                     .OrderBy(p => p.PhaseOrder)
@@ -1136,9 +1346,15 @@ namespace SimuladorApi.Services
                 .Replace("ú", "u")
                 .Replace("ñ", "n");
         }
-        public async Task<GeneratedScenarioDraftDto> GenerateScenarioDraftAsync(string methodology)
+        public async Task<GeneratedScenarioDraftDto> GenerateScenarioDraftAsync(
+            GenerateScenarioDraftDto request,
+            int requestedByUserId,
+            CancellationToken cancellationToken = default)
         {
-            return await _aiScenarioContentService.GenerateScenarioDraftAsync(methodology);
+            return await _aiScenarioContentService.GenerateScenarioDraftAsync(
+                request,
+                requestedByUserId,
+                cancellationToken);
         }
 
         private void AddBaseScenarioOptions(int scenarioId)

@@ -57,11 +57,11 @@ function CreateScenarioPage() {
           </div>
 
           <div className="form-group">
-            <label>Descripción</label>
+            <label>NRC o Código del escenario</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe el escenario"
+              placeholder="INN00022"
             />
           </div>
 

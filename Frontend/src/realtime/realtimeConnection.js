@@ -1,12 +1,13 @@
 import * as signalR from "@microsoft/signalr";
 import { getToken } from "../utils/auth";
+import { buildBackendUrl } from "../api/apiConfig";
 
 let connection = null;
 let startPromise = null;
 let retryTimer = null;
 
 function getBackendBaseUrl() {
-  const configuredUrl = import.meta.env.VITE_API_URL;
+  const configuredUrl = buildBackendUrl("");
 
   if (!configuredUrl) {
     throw new Error(
@@ -22,13 +23,6 @@ function getBackendBaseUrl() {
 }
 
 function getHubUrl() {
-  const configuredHubUrl =
-    import.meta.env.VITE_SIGNALR_URL;
-
-  if (configuredHubUrl) {
-    return configuredHubUrl.replace(/\/+$/, "");
-  }
-
   return `${getBackendBaseUrl()}/hubs/realtime`;
 }
 

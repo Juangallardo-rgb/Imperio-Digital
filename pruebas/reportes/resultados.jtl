@@ -1,0 +1,141 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1784269103314,494,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,842,270,1,1,https://localhost:7160/api/Auth/login,491,0,237
+1784269103825,156,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,1073,830,1,1,https://localhost:7160/api/courses/my,156,0,0
+1784269103981,1064,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,2144,845,2,2,https://localhost:7160/api/courses/teacher-dashboard,1064,0,0
+1784269105045,253,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,837,267,3,3,https://localhost:7160/api/Auth/login,253,0,0
+1784269105258,253,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,842,270,3,3,https://localhost:7160/api/Auth/login,253,0,6
+1784269104256,1286,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,842,270,3,3,https://localhost:7160/api/Auth/login,1286,0,9
+1784269105512,156,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,1073,830,3,3,https://localhost:7160/api/courses/my,156,0,0
+1784269105543,156,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,1073,830,3,3,https://localhost:7160/api/courses/my,156,0,0
+1784269105668,465,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,2144,845,3,3,https://localhost:7160/api/courses/teacher-dashboard,464,0,0
+1784269106133,251,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,837,267,4,4,https://localhost:7160/api/Auth/login,251,0,0
+1784269105298,1238,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,160,832,4,4,https://localhost:7160/api/courses/available,1238,0,0
+1784269105700,917,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,2144,845,4,4,https://localhost:7160/api/courses/teacher-dashboard,917,0,0
+1784269106536,156,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,1073,831,4,4,https://localhost:7160/api/courses/enrolled,156,0,0
+1784269106384,308,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,160,832,4,4,https://localhost:7160/api/courses/available,308,0,0
+1784269106693,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,1073,831,4,4,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269106692,159,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,8752,853,4,4,https://localhost:7160/api/design-thinking/simulations/my-history,158,0,0
+1784269106617,252,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,837,267,4,4,https://localhost:7160/api/Auth/login,252,0,0
+1784269106849,158,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,8752,853,4,4,https://localhost:7160/api/design-thinking/simulations/my-history,158,0,0
+1784269106851,250,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,842,270,4,4,https://localhost:7160/api/Auth/login,250,0,0
+1784269106870,307,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,160,832,4,4,https://localhost:7160/api/courses/available,307,0,0
+1784269107008,247,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,842,270,4,4,https://localhost:7160/api/Auth/login,247,0,0
+1784269107102,185,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,185,0,0
+1784269107177,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269106256,1172,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,842,270,5,5,https://localhost:7160/api/Auth/login,1171,0,6
+1784269107255,185,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,185,0,0
+1784269107333,157,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,156,0,0
+1784269107428,156,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,156,0,0
+1784269107490,243,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,842,270,5,5,https://localhost:7160/api/Auth/login,243,0,0
+1784269107734,155,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,155,0,0
+1784269107440,462,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,2144,845,5,5,https://localhost:7160/api/courses/teacher-dashboard,462,0,0
+1784269107903,248,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,248,0,0
+1784269107889,462,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,2144,845,6,6,https://localhost:7160/api/courses/teacher-dashboard,461,0,0
+1784269107287,1064,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,2144,845,6,6,https://localhost:7160/api/courses/teacher-dashboard,1064,0,0
+1784269107256,1195,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,842,270,6,6,https://localhost:7160/api/Auth/login,1195,0,35
+1784269108152,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,160,832,6,6,https://localhost:7160/api/courses/available,306,0,0
+1784269108351,244,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,837,267,6,6,https://localhost:7160/api/Auth/login,244,0,0
+1784269108351,249,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,837,267,6,6,https://localhost:7160/api/Auth/login,249,0,0
+1784269108451,154,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,1073,830,6,6,https://localhost:7160/api/courses/my,154,0,0
+1784269108458,154,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,1073,831,6,6,https://localhost:7160/api/courses/enrolled,154,0,0
+1784269107585,1065,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,2144,845,6,6,https://localhost:7160/api/courses/teacher-dashboard,1065,0,0
+1784269108613,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-3,text,true,,8752,853,6,6,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269108650,249,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,249,0,0
+1784269108596,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269108601,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269108903,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269108907,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269108899,310,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,310,0,0
+1784269109059,155,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-1,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269109063,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-2,text,true,,8752,853,4,4,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269109209,153,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,1073,831,4,4,https://localhost:7160/api/courses/enrolled,153,0,0
+1784269108257,1172,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,842,270,4,4,https://localhost:7160/api/Auth/login,1172,0,6
+1784269109256,252,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,842,270,4,4,https://localhost:7160/api/Auth/login,252,0,5
+1784269108605,909,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,2144,845,4,4,https://localhost:7160/api/courses/teacher-dashboard,909,0,0
+1784269109363,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,8752,853,4,4,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269109430,155,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,1073,830,4,4,https://localhost:7160/api/courses/my,154,0,0
+1784269109509,155,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,1073,830,4,4,https://localhost:7160/api/courses/my,155,0,0
+1784269109514,246,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,837,267,4,4,https://localhost:7160/api/Auth/login,246,0,0
+1784269109517,248,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,842,270,4,4,https://localhost:7160/api/Auth/login,248,0,0
+1784269109765,152,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,1073,830,4,4,https://localhost:7160/api/courses/my,152,0,0
+1784269109760,307,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,160,832,4,4,https://localhost:7160/api/courses/available,307,0,0
+1784269109664,464,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,2144,845,4,4,https://localhost:7160/api/courses/teacher-dashboard,464,0,0
+1784269110069,153,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,1073,831,4,4,https://localhost:7160/api/courses/enrolled,153,0,0
+1784269110223,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269110128,250,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,250,0,0
+1784269109918,462,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,2144,845,5,5,https://localhost:7160/api/courses/teacher-dashboard,462,0,0
+1784269109585,911,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,2144,845,5,5,https://localhost:7160/api/courses/teacher-dashboard,911,0,0
+1784269110258,252,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,842,270,5,5,https://localhost:7160/api/Auth/login,252,0,5
+1784269110380,243,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,243,0,0
+1784269110378,247,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,842,270,5,5,https://localhost:7160/api/Auth/login,247,0,0
+1784269110510,153,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,153,0,0
+1784269110378,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269110496,251,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,251,0,0
+1784269110625,155,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,155,0,0
+1784269110685,154,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,154,0,0
+1784269110624,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269110840,155,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,155,0,0
+1784269110748,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269110930,153,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,153,0,0
+1784269110663,462,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,2144,845,5,5,https://localhost:7160/api/courses/teacher-dashboard,462,0,0
+1784269111054,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269111084,155,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-4,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,155,0,0
+1784269110780,460,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,2144,845,4,4,https://localhost:7160/api/courses/teacher-dashboard,460,0,0
+1784269110996,251,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,842,270,4,4,https://localhost:7160/api/Auth/login,251,0,0
+1784269111209,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269111125,249,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,249,0,0
+1784269111248,153,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,153,0,0
+1784269111240,249,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,249,0,0
+1784269111256,253,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,842,270,5,5,https://localhost:7160/api/Auth/login,253,0,5
+1784269111363,247,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,842,270,5,5,https://localhost:7160/api/Auth/login,247,0,0
+1784269111509,154,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,154,0,0
+1784269111374,307,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,307,0,0
+1784269111611,155,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,155,0,0
+1784269111490,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269111681,154,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,154,0,0
+1784269111797,154,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,154,0,0
+1784269111836,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269111402,608,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,2144,845,5,5,https://localhost:7160/api/courses/teacher-dashboard,608,0,0
+1784269111951,155,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-5,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,155,0,0
+1784269111664,461,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,2144,845,4,4,https://localhost:7160/api/courses/teacher-dashboard,461,0,0
+1784269111767,462,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,2144,845,4,4,https://localhost:7160/api/courses/teacher-dashboard,462,0,0
+1784269111990,248,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,842,270,4,4,https://localhost:7160/api/Auth/login,247,0,0
+1784269112010,245,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,245,0,0
+1784269112125,240,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,240,0,0
+1784269112238,154,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,154,0,0
+1784269112229,245,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,837,267,5,5,https://localhost:7160/api/Auth/login,245,0,0
+1784269112254,250,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,842,270,5,5,https://localhost:7160/api/Auth/login,250,0,6
+1784269112255,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269112504,154,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,1073,830,5,5,https://localhost:7160/api/courses/my,154,0,0
+1784269112366,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,306,0,0
+1784269112561,154,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,154,0,0
+1784269112474,311,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,160,832,5,5,https://localhost:7160/api/courses/available,311,0,0
+1784269112672,153,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,1073,831,5,5,https://localhost:7160/api/courses/enrolled,153,0,0
+1784269112393,461,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,2144,845,5,5,https://localhost:7160/api/courses/teacher-dashboard,461,0,0
+1784269112715,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-7,text,true,,8752,853,5,5,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269112786,152,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,1073,831,4,4,https://localhost:7160/api/courses/enrolled,152,0,0
+1784269112826,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,8752,853,4,4,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269112939,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-6,text,true,,8752,853,4,4,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269112855,248,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,837,267,3,3,https://localhost:7160/api/Auth/login,248,0,0
+1784269112659,461,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,2144,845,3,3,https://localhost:7160/api/courses/teacher-dashboard,461,0,0
+1784269112980,246,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,842,270,3,3,https://localhost:7160/api/Auth/login,246,0,0
+1784269113121,247,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,837,267,3,3,https://localhost:7160/api/Auth/login,247,0,0
+1784269113226,154,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,1073,830,3,3,https://localhost:7160/api/courses/my,154,0,0
+1784269113104,306,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,160,832,3,3,https://localhost:7160/api/courses/available,306,0,0
+1784269113410,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,1073,831,3,3,https://localhost:7160/api/courses/enrolled,154,0,0
+1784269113369,309,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,160,832,3,3,https://localhost:7160/api/courses/available,309,0,0
+1784269113565,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-8,text,true,,8752,853,3,3,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269113679,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,1073,831,2,2,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269113380,459,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,2144,845,2,2,https://localhost:7160/api/courses/teacher-dashboard,459,0,0
+1784269113835,154,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,8752,853,2,2,https://localhost:7160/api/design-thinking/simulations/my-history,154,0,0
+1784269113839,248,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,837,267,2,2,https://localhost:7160/api/Auth/login,248,0,0
+1784269113989,244,PA-01 Login docente,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,842,270,2,2,https://localhost:7160/api/Auth/login,244,0,0
+1784269114234,155,PA-03 Consultar cursos docente,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,1073,830,2,2,https://localhost:7160/api/courses/my,155,0,0
+1784269114088,305,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,160,832,2,2,https://localhost:7160/api/courses/available,305,0,0
+1784269114393,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,1073,831,2,2,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269114548,153,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-9,text,true,,8752,853,2,2,https://localhost:7160/api/design-thinking/simulations/my-history,153,0,0
+1784269114389,764,PA-04 Consultar dashboard docente,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,2144,845,1,1,https://localhost:7160/api/courses/teacher-dashboard,764,0,0
+1784269115153,241,PA-02 Login estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,837,267,1,1,https://localhost:7160/api/Auth/login,241,0,0
+1784269115395,308,PA-05 Consultar cursos disponibles estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,160,832,1,1,https://localhost:7160/api/courses/available,307,0,0
+1784269115703,155,PA-06 Consultar cursos inscritos estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,1073,831,1,1,https://localhost:7160/api/courses/enrolled,155,0,0
+1784269115858,158,PA-07 Consultar historial estudiante,200,OK,TG - Pruebas API Imperio Digital 1-10,text,true,,8752,853,1,1,https://localhost:7160/api/design-thinking/simulations/my-history,158,0,0

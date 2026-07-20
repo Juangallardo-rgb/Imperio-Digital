@@ -29,8 +29,9 @@ namespace SimuladorApi.Services
 
         public decimal CombinePhaseScore(
             decimal selectionScore,
-            decimal textScore,
-            ScenarioPhaseSetting phaseSetting)
+            decimal? textScore,
+            ScenarioPhaseSetting phaseSetting,
+            bool isTextEvaluationAvailable = true)
         {
             var selectionCriteriaWeight = phaseSetting.Criteria
                 .Where(c => c.EvaluationType == "Selection")
@@ -40,9 +41,18 @@ namespace SimuladorApi.Services
                 .Where(c => c.EvaluationType == "AIText")
                 .Sum(c => c.CriterionWeight);
 
+            // Si OpenRouter no está disponible, la respuesta se conserva y la fase se
+            // calcula únicamente con los criterios realmente evaluados, renormalizados.
+            var availableTextWeight = isTextEvaluationAvailable && textScore.HasValue
+                ? textCriteriaWeight
+                : 0;
+            var availableWeight = selectionCriteriaWeight + availableTextWeight;
+            if (availableWeight <= 0)
+                return 0;
+
             var score =
-                (selectionScore * (selectionCriteriaWeight / 100)) +
-                (textScore * (textCriteriaWeight / 100));
+                (selectionScore * (selectionCriteriaWeight / availableWeight)) +
+                ((textScore ?? 0) * (availableTextWeight / availableWeight));
 
             if (score < 0)
                 score = 0;

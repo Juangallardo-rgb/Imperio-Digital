@@ -7,6 +7,7 @@ import {
   getRelationshipLabel,
   PROCESS_AREAS,
 } from "./bpmHelpers";
+import BpmChoiceChips from "./BpmChoiceChips";
 
 function IdentifyProcessExperience({
   model,
@@ -145,20 +146,13 @@ function IdentifyProcessExperience({
                     <div><dt>Area afectada</dt><dd>{getProcessAreaLabel(area)}</dd></div>
                   </dl>
 
-                  {isSelected && !area && (
-                    <label className="bpm-card-select" htmlFor={`bpm-evidence-area-${card.id}`}>
-                      Clasifica el area afectada
-                      <select
-                        id={`bpm-evidence-area-${card.id}`}
-                        value={area}
-                        onChange={(event) => updateArea(card.id, event.target.value)}
-                      >
-                        <option value="">Por clasificar</option>
-                        {PROCESS_AREAS.map((item) => (
-                          <option key={item.key} value={item.key}>{item.label}</option>
-                        ))}
-                      </select>
-                    </label>
+                  {isSelected && (
+                    <BpmChoiceChips
+                      label="Clasifica el area afectada"
+                      choices={PROCESS_AREAS}
+                      value={area}
+                      onChange={(value) => updateArea(card.id, value)}
+                    />
                   )}
 
                   <button

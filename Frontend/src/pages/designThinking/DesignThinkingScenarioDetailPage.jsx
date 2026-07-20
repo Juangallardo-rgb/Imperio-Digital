@@ -208,6 +208,10 @@ function DesignThinkingScenarioDetailPage() {
             <span className="methodology-chip light">
               {getMethodologyName(scenario.methodologyName || scenario.methodology)}
             </span>
+
+            {scenario.generatedByAi && (
+              <span className="methodology-chip light">Generado con OpenRouter</span>
+            )}
           </div>
 
           <div className="scenario-detail-actions">
@@ -348,6 +352,24 @@ function DesignThinkingScenarioDetailPage() {
               <span>Creación</span>
               <strong>{formatDate(scenario.createdAt)}</strong>
             </div>
+
+            <div>
+              <span>Origen</span>
+              <strong>{getCreationModeName(scenario.creationMode)}</strong>
+            </div>
+
+            {scenario.generatedByAi && (
+              <>
+                <div>
+                  <span>Proveedor IA</span>
+                  <strong>{scenario.aiProvider || "OpenRouter"}</strong>
+                </div>
+                <div>
+                  <span>Modelo efectivo</span>
+                  <strong>{scenario.aiModel || "No informado"}</strong>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -493,6 +515,17 @@ function getDifficultyClass(difficulty) {
   if (value.includes("baja")) return "low";
 
   return "medium";
+}
+
+function getCreationModeName(value) {
+  const names = {
+    Manual: "Manual",
+    AiAssisted: "Asistido por IA",
+    Template: "Plantilla explícita",
+    Legacy: "Legado",
+  };
+
+  return names[value] || "Legado";
 }
 
 function formatDate(date) {

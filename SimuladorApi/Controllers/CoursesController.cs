@@ -226,6 +226,23 @@ namespace SimuladorApi.Controllers
         }
 
         [Authorize(Roles = "Docente")]
+        [HttpGet("{courseId}/results/analytics")]
+        public async Task<IActionResult> GetCourseResultsAnalytics(int courseId)
+        {
+            var teacherId = GetUserId();
+
+            var result = await _courseService.GetCourseResultsAnalyticsAsync(
+                courseId,
+                teacherId
+            );
+
+            if (result == null)
+                return NotFound("Curso no encontrado.");
+
+            return Ok(result);
+        }
+
+        [Authorize(Roles = "Docente")]
         [HttpGet("teacher-dashboard")]
         public async Task<IActionResult> GetTeacherDashboard()
         {

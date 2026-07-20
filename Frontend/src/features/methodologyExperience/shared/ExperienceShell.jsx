@@ -75,18 +75,20 @@ function ExperienceShell({
       "plandetransformacion",
       "seguimientodemadurez",
     ].includes(currentPhaseKey);
-  const usesFocusedBpmProcessAnalysis =
+  const usesFocusedBpmProcessExperience =
     model.methodology.code === "BPM" &&
     [
       "identificarproceso",
       "modelarprocesoactual",
       "analizarcuellosdebotella",
+      "redisenarproceso",
+      "monitorearindicadores",
     ].includes(currentPhaseKey);
   const usesPhaseSpecificDecisionSummary =
     (model.methodology.code === "DesignThinking" &&
       ["prototipar", "evaluar"].includes(currentPhaseKey)) ||
     usesFocusedDigitalMaturityContinuity ||
-    usesFocusedBpmProcessAnalysis;
+    usesFocusedBpmProcessExperience;
   const briefingValues = {
     company: model.scenario.companyType || (
       usesFocusedDigitalMaturityContinuity
@@ -195,28 +197,30 @@ function ExperienceShell({
 
       <div className="experience-workspace">
         <aside className="experience-sidebar">
-          <div className="experience-resource-stack">
-            <ResourceMeter
-              label="Presupuesto"
-              value={model.resources.remainingBudget}
-              total={model.resources.initialBudget}
-              suffix="pts"
-            />
-            <ResourceMeter
-              label="Tiempo"
-              value={model.resources.remainingTimeWeeks}
-              total={model.resources.initialTimeWeeks}
-              suffix="sem"
-              tone="secondary"
-            />
-            <ResourceMeter
-              label="Riesgo"
-              value={model.resources.riskLevel}
-              total={100}
-              suffix="/100"
-              tone={riskTone}
-            />
-          </div>
+          {!usesFocusedBpmProcessExperience && (
+            <div className="experience-resource-stack">
+              <ResourceMeter
+                label="Presupuesto"
+                value={model.resources.remainingBudget}
+                total={model.resources.initialBudget}
+                suffix="pts"
+              />
+              <ResourceMeter
+                label="Tiempo"
+                value={model.resources.remainingTimeWeeks}
+                total={model.resources.initialTimeWeeks}
+                suffix="sem"
+                tone="secondary"
+              />
+              <ResourceMeter
+                label="Riesgo"
+                value={model.resources.riskLevel}
+                total={100}
+                suffix="/100"
+                tone={riskTone}
+              />
+            </div>
+          )}
 
           <section className="experience-kpis">
             <h2>KPIs actuales</h2>

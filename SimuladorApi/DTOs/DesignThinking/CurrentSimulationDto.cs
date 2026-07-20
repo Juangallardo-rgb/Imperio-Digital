@@ -26,7 +26,7 @@
 
         public List<string> CompletedPhases { get; set; } = new();
 
-        public List<ScenarioOptionDetailDto> CurrentPhaseOptions { get; set; } = new();
+        public List<ScenarioExecutionOptionDto> CurrentPhaseOptions { get; set; } = new();
 
         // NUEVO: estado visible de la simulación
         public decimal InitialBudget { get; set; }
@@ -51,6 +51,23 @@
 
         public List<SimulationPhaseNavigationDto> PhaseOrder { get; set; } = new();
     }
+    public class ScenarioExecutionOptionDto
+    {
+        public int Id { get; set; }
+        public string PhaseName { get; set; } = string.Empty;
+        public string OptionType { get; set; } = string.Empty;
+        public string Text { get; set; } = string.Empty;
+        public int OrderIndex { get; set; }
+        public decimal Cost { get; set; }
+        public decimal TimeCost { get; set; }
+        public decimal RiskImpact { get; set; }
+        public string TagsJson { get; set; } = string.Empty;
+        public int MaxSelections { get; set; }
+        public string ExpectedImpactLevel { get; set; } = string.Empty;
+        public string ExpectedEffortLevel { get; set; } = string.Empty;
+        public string ExpectedViabilityLevel { get; set; } = string.Empty;
+    }
+
     public class SimulationPhaseNavigationDto
     {
         public string PhaseName { get; set; } = string.Empty;

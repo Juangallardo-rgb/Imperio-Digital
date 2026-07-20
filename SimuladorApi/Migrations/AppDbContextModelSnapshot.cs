@@ -76,6 +76,95 @@ namespace SimuladorApi.Migrations
                     b.ToTable("CourseScenarios");
                 });
 
+            modelBuilder.Entity("SimuladorApi.Models.AiGenerationRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EffectiveModel")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MethodologyCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PromptHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PromptVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("RequestedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RequestedModel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ResponseFormat")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasDefaultValue("none")
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ResponseHash")
+                        .HasColumnType("text");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ScenarioId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrelationId")
+                        .IsUnique();
+
+                    b.HasIndex("ScenarioId");
+
+                    b.HasIndex("RequestedByUserId", "MethodologyCode", "OperationType", "Status");
+
+                    b.ToTable("AiGenerationRecords");
+                });
+
             modelBuilder.Entity("SimuladorApi.Models.Course", b =>
                 {
                     b.Property<int>("Id")
@@ -306,6 +395,18 @@ namespace SimuladorApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("AiGeneratedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AiModel")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AiPromptVersion")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AiProvider")
+                        .HasColumnType("text");
+
                     b.Property<bool>("AllowLateAttempts")
                         .HasColumnType("boolean");
 
@@ -329,6 +430,10 @@ namespace SimuladorApi.Migrations
                     b.Property<int>("CreatedByUserId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("CreationMode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("text");
@@ -336,6 +441,9 @@ namespace SimuladorApi.Migrations
                     b.Property<string>("Difficulty")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("GeneratedByAi")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsPublished")
                         .HasColumnType("boolean");
@@ -615,10 +723,34 @@ namespace SimuladorApi.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("SelectedOptionsSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<int>("SimulationPhaseResponseId")
                         .HasColumnType("integer");
 
                     b.Property<string>("TextAnswer")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("TextEvaluatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TextEvaluationJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TextEvaluationModel")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TextEvaluationPromptVersion")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TextEvaluationProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TextEvaluationStatus")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -878,6 +1010,16 @@ namespace SimuladorApi.Migrations
                     b.Navigation("Scenario");
                 });
 
+            modelBuilder.Entity("SimuladorApi.Models.AiGenerationRecord", b =>
+                {
+                    b.HasOne("SimuladorApi.Models.Scenario", "Scenario")
+                        .WithMany("AiGenerationRecords")
+                        .HasForeignKey("ScenarioId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Scenario");
+                });
+
             modelBuilder.Entity("SimuladorApi.Models.Course", b =>
                 {
                     b.HasOne("SimuladorApi.Models.User", "Teacher")
@@ -1123,6 +1265,8 @@ namespace SimuladorApi.Migrations
 
             modelBuilder.Entity("SimuladorApi.Models.Scenario", b =>
                 {
+                    b.Navigation("AiGenerationRecords");
+
                     b.Navigation("Options");
 
                     b.Navigation("PhaseSettings");

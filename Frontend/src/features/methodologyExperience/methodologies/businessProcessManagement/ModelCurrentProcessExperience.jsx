@@ -7,6 +7,7 @@ import {
   getProcessAreaLabel,
   PROCESS_AREAS,
 } from "./bpmHelpers";
+import BpmChoiceChips from "./BpmChoiceChips";
 
 function ModelCurrentProcessExperience({
   model,
@@ -137,20 +138,13 @@ function ModelCurrentProcessExperience({
                     <div><dt>Relacion con el flujo</dt><dd>{card.isLessOperational ? "Por evaluar" : "Proceso actual"}</dd></div>
                   </dl>
 
-                  {isSelected && !stage && (
-                    <label className="bpm-card-select" htmlFor={`bpm-flow-stage-${card.id}`}>
-                      Clasifica la etapa
-                      <select
-                        id={`bpm-flow-stage-${card.id}`}
-                        value={stage}
-                        onChange={(event) => updateStage(card.id, event.target.value)}
-                      >
-                        <option value="">Por clasificar</option>
-                        {PROCESS_AREAS.map((item) => (
-                          <option key={item.key} value={item.key}>{item.label}</option>
-                        ))}
-                      </select>
-                    </label>
+                  {isSelected && (
+                    <BpmChoiceChips
+                      label="Clasifica la etapa"
+                      choices={PROCESS_AREAS}
+                      value={stage}
+                      onChange={(value) => updateStage(card.id, value)}
+                    />
                   )}
 
                   {isSelected && card.isLessOperational && (
