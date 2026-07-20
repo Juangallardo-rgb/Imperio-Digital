@@ -71,9 +71,8 @@ public static class AiScenarioJsonSchemas
                             impact = new
                             {
                                 type = "object",
-                                minProperties = 1,
-                                maxProperties = allowedKpis.Count,
                                 additionalProperties = false,
+                                required = allowedKpis,
                                 properties = impactProperties
                             },
                             tags = new
@@ -81,7 +80,6 @@ public static class AiScenarioJsonSchemas
                                 type = "array",
                                 minItems = 1,
                                 maxItems = 6,
-                                uniqueItems = true,
                                 items = new { type = "string", minLength = 1, maxLength = 40 }
                             },
                             cost = new

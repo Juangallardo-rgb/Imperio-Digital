@@ -68,5 +68,10 @@ export function parseScenarioRequestError(error, fallbackMessage) {
         ? responseData.phaseName
         : null,
     correlationId: responseData?.correlationId ?? null,
+    validationErrors: Array.isArray(responseData?.validationErrors)
+      ? responseData.validationErrors
+          .filter((item) => typeof item === "string" && item.trim())
+          .slice(0, 3)
+      : [],
   };
 }

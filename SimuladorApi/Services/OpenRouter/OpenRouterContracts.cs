@@ -13,7 +13,9 @@ public sealed record OpenRouterJsonRequest(
     double Temperature = 0.2,
     int MaxTokens = 1200,
     Guid? CorrelationId = null,
-    int? TimeoutSeconds = null);
+    int? TimeoutSeconds = null,
+    bool OptimizeForSpeed = false,
+    string? ReasoningEffort = null);
 
 public sealed record OpenRouterTextRequest(
     string Operation,

@@ -17,6 +17,21 @@ public sealed class OpenRouterClientTests
     });
 
     [Fact]
+    public void ScenarioDefaults_UseStableFastModelAndAllFivePhases()
+    {
+        var options = new OpenRouterOptions();
+
+        Assert.Equal("google/gemini-2.5-flash-lite", options.ResolveScenarioModel());
+        Assert.Equal("openai/gpt-4.1-mini", options.ResolveScenarioOptionsModel());
+        Assert.Equal("google/gemini-2.5-flash-lite", options.ResolveScenarioModelForAttempt(1));
+        Assert.Equal(2, options.MaxConcurrentScenarioPhaseRequests);
+        Assert.False(options.OptimizeScenarioRequestsForSpeed);
+        Assert.Equal("throughput", options.ScenarioProviderSort);
+        Assert.False(options.UseScenarioResponseHealing);
+        Assert.Empty(options.ScenarioReasoningEffort);
+    }
+
+    [Fact]
     public async Task GenerateJson_UsesSchemaAndReturnsEffectiveModel()
     {
         var handler = new FakeHttpMessageHandler(_ => JsonResponse("{\"value\":\"ok\"}", "effective/model"));
@@ -104,6 +119,30 @@ public sealed class OpenRouterClientTests
     }
 
     [Fact]
+    public async Task GenerateJson_ExtractsObjectFromMixedModelText()
+    {
+        var handler = new FakeHttpMessageHandler(_ =>
+            JsonResponse("Resultado generado:\n{\"value\":\"ok\"}\nFin."));
+
+        var result = await CreateClient(handler).GenerateJsonAsync<Sample>(Request());
+
+        Assert.True(result.Success);
+        Assert.Equal("ok", result.Value?.Value);
+    }
+
+    [Fact]
+    public async Task GenerateJson_RejectsTruncatedResponseBeforeParsing()
+    {
+        var handler = new FakeHttpMessageHandler(_ =>
+            JsonResponse("{\"value\":\"incompleto", finishReason: "length"));
+
+        var result = await CreateClient(handler).GenerateJsonAsync<Sample>(Request());
+
+        Assert.False(result.Success);
+        Assert.Equal("truncated_response", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task GenerateText_ReturnsPlainContent()
     {
         var handler = new FakeHttpMessageHandler(_ => JsonResponse("texto narrativo"));
@@ -141,6 +180,42 @@ public sealed class OpenRouterClientTests
         await CreateClient(handler).GenerateJsonAsync<Sample>(Request());
     }
 
+    [Fact]
+    public async Task OptimizedJsonRequest_UsesFastStructuredProviderAndResponseHealing()
+    {
+        var handler = new FakeHttpMessageHandler(_ => JsonResponse("{\"value\":\"ok\"}"));
+        var request = Request() with
+        {
+            OptimizeForSpeed = true,
+            ReasoningEffort = null
+        };
+
+        await CreateClient(handler).GenerateJsonAsync<Sample>(request);
+
+        using var body = JsonDocument.Parse(handler.RequestBodies.Single());
+        var root = body.RootElement;
+        Assert.Equal("throughput", root.GetProperty("provider").GetProperty("sort").GetString());
+        Assert.True(root.GetProperty("provider").GetProperty("require_parameters").GetBoolean());
+        Assert.False(root.TryGetProperty("reasoning", out _));
+        Assert.True(root.GetProperty("usage").GetProperty("include").GetBoolean());
+        Assert.Equal(
+            "response-healing",
+            root.GetProperty("plugins")[0].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task OrdinaryJsonRequest_DoesNotChangeRoutingOrReasoning()
+    {
+        var handler = new FakeHttpMessageHandler(_ => JsonResponse("{\"value\":\"ok\"}"));
+
+        await CreateClient(handler).GenerateJsonAsync<Sample>(Request());
+
+        using var body = JsonDocument.Parse(handler.RequestBodies.Single());
+        Assert.False(body.RootElement.TryGetProperty("provider", out _));
+        Assert.False(body.RootElement.TryGetProperty("reasoning", out _));
+        Assert.False(body.RootElement.TryGetProperty("usage", out _));
+    }
+
     private static OpenRouterJsonRequest Request() => new(
         "test", "requested/model", [new OpenRouterMessage("user", "prompt")],
         "sample", Schema);
@@ -158,20 +233,23 @@ public sealed class OpenRouterClientTests
                 SiteName = "tests",
                 MaxRetries = 2,
                 TimeoutSeconds = 2,
-                AllowJsonObjectFallback = allowFallback
+                AllowJsonObjectFallback = allowFallback,
+                RequireScenarioParameters = true,
+                UseScenarioResponseHealing = true
             }),
             NullLogger<OpenRouterClient>.Instance);
 
     private static HttpResponseMessage JsonResponse(
         string content,
-        string model = "effective/model") =>
+        string model = "effective/model",
+        string? finishReason = null) =>
         new(HttpStatusCode.OK)
         {
             Content = new StringContent(
                 JsonSerializer.Serialize(new
                 {
                     model,
-                    choices = new[] { new { message = new { content } } }
+                    choices = new[] { new { finish_reason = finishReason, message = new { content } } }
                 }),
                 Encoding.UTF8,
                 "application/json")

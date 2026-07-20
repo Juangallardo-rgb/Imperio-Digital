@@ -25,3 +25,4 @@ Thumbs.db
 # Secrets
 appsettings.Development.json
 appsettings.*.local.json
+CONFIGURACION_LAPTOP_PRIVADA.md

@@ -325,9 +325,7 @@ function CreateDesignThinkingScenarioPage() {
           : "El escenario fue guardado como borrador. Antes de publicarlo debe agregar o generar opciones."
       );
 
-      setTimeout(() => {
-        navigate(`/design-thinking/scenarios/${response.data.id}`);
-      }, 700);
+      navigate(`/design-thinking/scenarios/${response.data.id}`);
     } catch (error) {
       console.error("Error creando escenario:", error);
       const parsedError = parseScenarioRequestError(
@@ -365,6 +363,13 @@ function CreateDesignThinkingScenarioPage() {
       {requestError?.detail && (
         <div className="ai-error-detail" role="alert">
           <span>{requestError.detail}</span>
+          {requestError.validationErrors?.length > 0 && (
+            <ul>
+              {requestError.validationErrors.map((validationError) => (
+                <li key={validationError}>{validationError}</li>
+              ))}
+            </ul>
+          )}
           {requestError.correlationId && (
             <small>Referencia de diagnóstico: {requestError.correlationId}</small>
           )}

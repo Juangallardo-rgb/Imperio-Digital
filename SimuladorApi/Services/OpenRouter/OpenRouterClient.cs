@@ -55,6 +55,8 @@ public sealed class OpenRouterClient : IOpenRouterClient
             promptHash,
             request.CorrelationId,
             request.TimeoutSeconds,
+            request.OptimizeForSpeed,
+            request.ReasoningEffort,
             cancellationToken);
 
         if (!response.Success &&
@@ -72,6 +74,8 @@ public sealed class OpenRouterClient : IOpenRouterClient
                 promptHash,
                 request.CorrelationId,
                 request.TimeoutSeconds,
+                request.OptimizeForSpeed,
+                request.ReasoningEffort,
                 cancellationToken);
         }
 
@@ -142,6 +146,8 @@ public sealed class OpenRouterClient : IOpenRouterClient
             promptHash,
             null,
             null,
+            false,
+            null,
             cancellationToken);
 
         if (!response.Success || string.IsNullOrWhiteSpace(response.Content))
@@ -178,6 +184,8 @@ public sealed class OpenRouterClient : IOpenRouterClient
         string promptHash,
         Guid? correlationId,
         int? timeoutSeconds,
+        bool optimizeForSpeed,
+        string? reasoningEffort,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
@@ -202,30 +210,57 @@ public sealed class OpenRouterClient : IOpenRouterClient
                     messages,
                     temperature,
                     maxTokens,
-                    responseFormat);
-                using var response = await _httpClient.SendAsync(requestMessage, timeoutSource.Token);
+                    responseFormat,
+                    optimizeForSpeed,
+                    reasoningEffort);
+                using var response = await _httpClient.SendAsync(
+                    requestMessage,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    timeoutSource.Token);
                 var statusCode = (int)response.StatusCode;
                 var responseBody = await response.Content.ReadAsStringAsync(timeoutSource.Token);
 
                 if (response.IsSuccessStatusCode)
                 {
                     var envelope = JsonSerializer.Deserialize<OpenRouterEnvelope>(responseBody, _jsonOptions);
-                    var content = envelope?.Choices?.FirstOrDefault()?.Message?.Content;
+                    var choice = envelope?.Choices?.FirstOrDefault();
+                    var content = choice?.Message?.Content;
                     if (string.IsNullOrWhiteSpace(content))
                     {
                         return RawOpenRouterResult.Failed(attempt, statusCode, "empty_response", responseFormatName);
                     }
+                    if (string.Equals(choice?.FinishReason, "length", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning(
+                            "OpenRouter response was truncated. CorrelationId={CorrelationId} Operation={Operation} Model={Model} EffectiveModel={EffectiveModel} HttpStatus={HttpStatus} DurationMs={DurationMs} AttemptNumber={AttemptNumber} ResponseFormat={ResponseFormat} PromptHash={PromptHash}",
+                            correlationId,
+                            operation,
+                            model,
+                            envelope?.Model,
+                            statusCode,
+                            stopwatch.ElapsedMilliseconds,
+                            attempt + 1,
+                            responseFormatName,
+                            promptHash);
+                        return RawOpenRouterResult.Failed(attempt, statusCode, "truncated_response", responseFormatName);
+                    }
 
                     _logger.LogInformation(
-                        "OpenRouter completed. CorrelationId={CorrelationId} Operation={Operation} Model={Model} EffectiveModel={EffectiveModel} HttpStatus={HttpStatus} DurationMs={DurationMs} AttemptNumber={AttemptNumber} ResponseFormat={ResponseFormat} PromptHash={PromptHash}",
+                        "OpenRouter completed. CorrelationId={CorrelationId} Operation={Operation} GenerationId={GenerationId} Model={Model} EffectiveModel={EffectiveModel} Provider={Provider} ServiceTier={ServiceTier} HttpStatus={HttpStatus} DurationMs={DurationMs} AttemptNumber={AttemptNumber} ResponseFormat={ResponseFormat} PromptTokens={PromptTokens} CompletionTokens={CompletionTokens} ReasoningTokens={ReasoningTokens} PromptHash={PromptHash}",
                         correlationId,
                         operation,
+                        envelope?.Id,
                         model,
                         envelope?.Model,
+                        envelope?.Provider,
+                        envelope?.ServiceTier,
                         statusCode,
                         stopwatch.ElapsedMilliseconds,
                         attempt + 1,
                         responseFormatName,
+                        envelope?.Usage?.PromptTokens,
+                        envelope?.Usage?.CompletionTokens,
+                        envelope?.Usage?.CompletionTokensDetails?.ReasoningTokens,
                         promptHash);
                     return RawOpenRouterResult.Completed(
                         content,
@@ -300,7 +335,9 @@ public sealed class OpenRouterClient : IOpenRouterClient
         IReadOnlyList<OpenRouterMessage> messages,
         double temperature,
         int maxTokens,
-        object? responseFormat)
+        object? responseFormat,
+        bool optimizeForSpeed,
+        string? reasoningEffort)
     {
         var requestBody = new Dictionary<string, object?>
         {
@@ -317,6 +354,31 @@ public sealed class OpenRouterClient : IOpenRouterClient
         if (responseFormat is not null)
         {
             requestBody["response_format"] = responseFormat;
+        }
+
+        if (optimizeForSpeed)
+        {
+            requestBody["provider"] = new
+            {
+                sort = string.IsNullOrWhiteSpace(_options.ScenarioProviderSort)
+                    ? "throughput"
+                    : _options.ScenarioProviderSort.Trim(),
+                require_parameters = responseFormat is not null && _options.RequireScenarioParameters
+            };
+            requestBody["usage"] = new { include = true };
+            if (responseFormat is not null && _options.UseScenarioResponseHealing)
+            {
+                requestBody["plugins"] = new[] { new { id = "response-healing" } };
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(reasoningEffort))
+        {
+            requestBody["reasoning"] = new
+            {
+                effort = reasoningEffort.Trim(),
+                exclude = true
+            };
         }
 
         var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);
@@ -340,15 +402,19 @@ public sealed class OpenRouterClient : IOpenRouterClient
     private static string CleanJson(string content)
     {
         var clean = content.Trim();
-        if (!clean.StartsWith("```", StringComparison.Ordinal))
+        if (clean.StartsWith("```", StringComparison.Ordinal))
         {
-            return clean;
+            var firstNewLine = clean.IndexOf('\n');
+            var lastFence = clean.LastIndexOf("```", StringComparison.Ordinal);
+            clean = firstNewLine >= 0 && lastFence > firstNewLine
+                ? clean[(firstNewLine + 1)..lastFence].Trim()
+                : clean;
         }
 
-        var firstNewLine = clean.IndexOf('\n');
-        var lastFence = clean.LastIndexOf("```", StringComparison.Ordinal);
-        return firstNewLine >= 0 && lastFence > firstNewLine
-            ? clean[(firstNewLine + 1)..lastFence].Trim()
+        var firstObject = clean.IndexOf('{');
+        var lastObject = clean.LastIndexOf('}');
+        return firstObject >= 0 && lastObject > firstObject
+            ? clean[firstObject..(lastObject + 1)]
             : clean;
     }
 
@@ -386,10 +452,23 @@ public sealed class OpenRouterClient : IOpenRouterClient
     }
 
     private sealed record OpenRouterEnvelope(
+        [property: JsonPropertyName("id")] string? Id,
         [property: JsonPropertyName("model")] string? Model,
+        [property: JsonPropertyName("provider")] string? Provider,
+        [property: JsonPropertyName("service_tier")] string? ServiceTier,
+        [property: JsonPropertyName("usage")] OpenRouterUsage? Usage,
         [property: JsonPropertyName("choices")] IReadOnlyList<OpenRouterChoice>? Choices);
 
+    private sealed record OpenRouterUsage(
+        [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
+        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens,
+        [property: JsonPropertyName("completion_tokens_details")] OpenRouterCompletionTokenDetails? CompletionTokensDetails);
+
+    private sealed record OpenRouterCompletionTokenDetails(
+        [property: JsonPropertyName("reasoning_tokens")] int? ReasoningTokens);
+
     private sealed record OpenRouterChoice(
+        [property: JsonPropertyName("finish_reason")] string? FinishReason,
         [property: JsonPropertyName("message")] OpenRouterResponseMessage? Message);
 
     private sealed record OpenRouterResponseMessage(

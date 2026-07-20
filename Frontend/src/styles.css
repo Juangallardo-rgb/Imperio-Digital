@@ -3869,6 +3869,11 @@ body {
   overflow-wrap: anywhere;
 }
 
+.ai-error-detail ul {
+  margin: 2px 0;
+  padding-left: 20px;
+}
+
 .ai-generation-modal-backdrop {
   position: fixed;
   inset: 0;

@@ -66,6 +66,10 @@ test("el error estructurado conserva fase y correlationId", () => {
           phaseName: "Hipótesis",
           correlationId: "corr-1",
           detail: "Estructura inválida.",
+          validationErrors: [
+            "Opción 2: el texto está duplicado.",
+            "Opción 2: tags no debe contener duplicados.",
+          ],
         },
       },
     },
@@ -75,4 +79,8 @@ test("el error estructurado conserva fase y correlationId", () => {
   assert.equal(parsed.phaseName, "Hipótesis");
   assert.equal(parsed.correlationId, "corr-1");
   assert.equal(parsed.detail, "Estructura inválida.");
+  assert.deepEqual(parsed.validationErrors, [
+    "Opción 2: el texto está duplicado.",
+    "Opción 2: tags no debe contener duplicados.",
+  ]);
 });

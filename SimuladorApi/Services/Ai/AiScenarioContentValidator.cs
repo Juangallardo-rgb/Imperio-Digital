@@ -139,7 +139,7 @@ public sealed class AiScenarioContentValidator
             var label = $"Opción {index + 1}";
             ValidateText(errors, option.Text, $"{label} text", 15, 500);
             ValidateText(errors, option.Rationale, $"{label} rationale", 10, 600);
-            if (!normalizedTexts.Add(Normalize(option.Text)))
+            if (!normalizedTexts.Add(NormalizeComparableText(option.Text)))
             {
                 errors.Add($"{label}: el texto está duplicado.");
             }
@@ -180,7 +180,7 @@ public sealed class AiScenarioContentValidator
                 {
                     errors.Add($"{label}: tags no puede contener más de {MaximumTagsPerOption} etiquetas.");
                 }
-                if (option.Tags.Select(Normalize).Distinct(StringComparer.Ordinal).Count() != option.Tags.Count)
+                if (option.Tags.Select(NormalizeComparableText).Distinct(StringComparer.Ordinal).Count() != option.Tags.Count)
                 {
                     errors.Add($"{label}: tags no debe contener duplicados.");
                 }
@@ -382,7 +382,7 @@ public sealed class AiScenarioContentValidator
         }
     }
 
-    private static string Normalize(string? value)
+    internal static string NormalizeComparableText(string? value)
     {
         var decomposed = (value ?? string.Empty).Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
         var builder = new StringBuilder(decomposed.Length);
@@ -396,4 +396,6 @@ public sealed class AiScenarioContentValidator
         }
         return builder.ToString().Normalize(NormalizationForm.FormC);
     }
+
+    private static string Normalize(string? value) => NormalizeComparableText(value);
 }

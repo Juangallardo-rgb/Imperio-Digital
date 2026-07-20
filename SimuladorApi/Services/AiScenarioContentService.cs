@@ -12,7 +12,6 @@ public sealed class AiScenarioContentService
 {
     private const int MaximumDraftRepairAttempts = 2;
     private const int MaximumRepairAttemptsPerPhase = 2;
-    private const int MaximumConcurrentPhaseRequests = 2;
     private readonly IOpenRouterClient _openRouterClient;
     private readonly OpenRouterOptions _options;
     private readonly MethodologyCatalogService _methodologyCatalogService;
@@ -75,7 +74,9 @@ public sealed class AiScenarioContentService
                 AiScenarioJsonSchemas.BuildDraft(methodology.Code),
                 Temperature: 0.6,
                 MaxTokens: 1400,
-                CorrelationId: auditRecord.CorrelationId),
+                CorrelationId: auditRecord.CorrelationId,
+                OptimizeForSpeed: _options.OptimizeScenarioRequestsForSpeed,
+                ReasoningEffort: _options.ScenarioReasoningEffort),
             cancellationToken);
 
         if (!result.Success || result.Value is null)
@@ -125,7 +126,9 @@ public sealed class AiScenarioContentService
                     AiScenarioJsonSchemas.BuildDraft(methodology.Code),
                     Temperature: 0.2,
                     MaxTokens: 1600,
-                    CorrelationId: auditRecord.CorrelationId),
+                    CorrelationId: auditRecord.CorrelationId,
+                    OptimizeForSpeed: _options.OptimizeScenarioRequestsForSpeed,
+                    ReasoningEffort: _options.ScenarioReasoningEffort),
                 cancellationToken);
 
             totalRetryCount += 1 + repairResult.RetryCount;
@@ -248,7 +251,11 @@ public sealed class AiScenarioContentService
                 correlationId: effectiveCorrelationId);
         }
 
-        using var semaphore = new SemaphoreSlim(MaximumConcurrentPhaseRequests);
+        var maximumConcurrency = Math.Clamp(
+            _options.MaxConcurrentScenarioPhaseRequests,
+            1,
+            catalogPhases.Count);
+        using var semaphore = new SemaphoreSlim(maximumConcurrency);
         var phaseTasks = catalogPhases.Select(async phase =>
         {
             await semaphore.WaitAsync(cancellationToken);
@@ -359,15 +366,19 @@ public sealed class AiScenarioContentService
     {
         var allowedTypes = _validator.GetAllowedOptionTypes(methodologyCode, phase.Name);
         IReadOnlyList<string> previousErrors = Array.Empty<string>();
+        var totalRetryCount = 0;
         for (var repairAttempt = 0; repairAttempt <= MaximumRepairAttemptsPerPhase; repairAttempt++)
         {
             var prompt = repairAttempt == 0
                 ? BuildPhasePrompt(scenario, methodologyCode, phase, allowedTypes)
-                : _promptBuilder.BuildRepairPrompt(scenario, methodologyCode, phase, allowedTypes, previousErrors);
+                : previousErrors.Count > 0
+                    ? _promptBuilder.BuildRepairPrompt(scenario, methodologyCode, phase, allowedTypes, previousErrors)
+                    : BuildPhasePrompt(scenario, methodologyCode, phase, allowedTypes);
+            var requestedModel = _options.ResolveScenarioOptionsModel();
             var result = await _openRouterClient.GenerateJsonAsync<AiPhaseOptionsContent>(
                 new OpenRouterJsonRequest(
                     $"scenario-options:{methodologyCode}:{phase.Name}:repair-{repairAttempt}",
-                    _options.ResolveScenarioModel(),
+                    requestedModel,
                     [
                         new OpenRouterMessage(
                             "system",
@@ -381,31 +392,45 @@ public sealed class AiScenarioContentService
                         allowedTypes,
                         KpiSimulationService.GetAllowedKpiKeys(methodologyCode)),
                     Temperature: repairAttempt == 0 ? 0.45 : 0.2,
-                    MaxTokens: 2200,
+                    MaxTokens: 3600,
                     CorrelationId: correlationId,
-                    TimeoutSeconds: _options.OptionsGenerationTimeoutSeconds),
+                    TimeoutSeconds: _options.OptionsGenerationTimeoutSeconds,
+                    OptimizeForSpeed: _options.OptimizeScenarioRequestsForSpeed,
+                    ReasoningEffort: _options.ScenarioReasoningEffort),
                 cancellationToken);
+            totalRetryCount += result.RetryCount + (repairAttempt > 0 ? 1 : 0);
 
             if (!result.Success || result.Value is null)
             {
-                if (repairAttempt == MaximumRepairAttemptsPerPhase)
+                if (repairAttempt < MaximumRepairAttemptsPerPhase && CanRetryPhaseGeneration(result))
                 {
-                    return PhaseGenerationResult.Failed(
+                    _logger.LogWarning(
+                        "Retrying failed AI phase with fallback model. CorrelationId={CorrelationId} MethodologyCode={MethodologyCode} PhaseName={PhaseName} RequestedModel={RequestedModel} HttpStatus={HttpStatus} ErrorCode={ErrorCode} AttemptNumber={AttemptNumber} PromptHash={PromptHash}",
+                        correlationId,
+                        methodologyCode,
                         phase.Name,
-                        "No se pudieron generar opciones válidas con OpenRouter. Las opciones anteriores se conservaron.",
-                        result.ErrorCode ?? "openrouter_failed",
-                        result.StatusCode,
                         result.RequestedModel,
-                        result.EffectiveModel,
-                        result.RetryCount,
-                        result.PromptHash,
-                        previousErrors,
-                        result.ResponseFormat);
+                        result.StatusCode,
+                        result.ErrorCode,
+                        repairAttempt + 1,
+                        result.PromptHash);
+                    continue;
                 }
-                previousErrors = new[] { "La llamada no devolvió un objeto JSON válido conforme al contrato." };
-                continue;
+
+                return PhaseGenerationResult.Failed(
+                    phase.Name,
+                    "No se pudieron generar opciones válidas con OpenRouter. Las opciones anteriores se conservaron.",
+                    result.ErrorCode ?? "openrouter_failed",
+                    result.StatusCode,
+                    result.RequestedModel,
+                    result.EffectiveModel,
+                    totalRetryCount,
+                    result.PromptHash,
+                    previousErrors,
+                    result.ResponseFormat);
             }
 
+            NormalizeGeneratedPhaseControls(methodologyCode, phase, result.Value);
             var validation = _validator.ValidatePhaseOptions(methodologyCode, phase, result.Value);
             if (validation.IsValid)
             {
@@ -424,7 +449,7 @@ public sealed class AiScenarioContentService
                     result.StatusCode,
                     result.RequestedModel,
                     result.EffectiveModel,
-                    result.RetryCount,
+                    totalRetryCount,
                     result.PromptHash,
                     result.ResponseFormat);
             }
@@ -450,12 +475,27 @@ public sealed class AiScenarioContentService
             "OpenRouter no pudo reparar las opciones de la fase.",
             AiOptionsGenerationErrorCodes.AiInvalidSchema,
             null,
-            _options.ResolveScenarioModel(),
+            _options.ResolveScenarioOptionsModel(),
             null,
-            MaximumRepairAttemptsPerPhase,
+            totalRetryCount,
             string.Empty,
             previousErrors,
             "json_schema");
+    }
+
+    internal static bool CanRetryPhaseGeneration(
+        OpenRouterResult<AiPhaseOptionsContent> result)
+    {
+        if (result.ErrorCode is "invalid_json" or "empty_json_result" or
+            "empty_response" or "truncated_response" or "timeout" or
+            "network_error" or "openrouter_failed")
+        {
+            return true;
+        }
+
+        return result.StatusCode == StatusCodes.Status408RequestTimeout ||
+            result.StatusCode == StatusCodes.Status429TooManyRequests ||
+            result.StatusCode >= StatusCodes.Status500InternalServerError;
     }
 
     private string BuildPhasePrompt(
@@ -501,6 +541,91 @@ public sealed class AiScenarioContentService
             ExpectedViabilityLevel = AiScenarioContentValidator.NormalizeFeminineLevel(generated.ExpectedViabilityLevel),
             OrderIndex = index + 1
         };
+    }
+
+    internal static void NormalizeGeneratedPhaseControls(
+        string methodologyCode,
+        MethodologyPhase phase,
+        AiPhaseOptionsContent content)
+    {
+        var policy = AiScenarioGenerationPolicy.GetRequired(methodologyCode, phase.Name);
+        content.PhaseName = phase.Name;
+        content.Options = (content.Options ?? new List<AiScenarioOptionContent>())
+            .Select((option, originalIndex) => new { Option = option, OriginalIndex = originalIndex })
+            .OrderBy(item => item.Option.OrderIndex is >= 1 and <= 100
+                ? item.Option.OrderIndex
+                : int.MaxValue)
+            .ThenBy(item => item.OriginalIndex)
+            .Select(item => item.Option)
+            .ToList();
+
+        for (var index = 0; index < content.Options.Count && index < policy.ExpectedOptionCount; index++)
+        {
+            var option = content.Options[index];
+            var resourcePolicy = policy.GetOption(index + 1);
+            option.OptionType = option.OptionType.Trim();
+            option.Text = option.Text.Trim();
+            option.Rationale = option.Rationale.Trim();
+            option.Tags = NormalizeGeneratedTags(option.Tags, phase.Name);
+            option.ExpectedImpactLevel = AiScenarioContentValidator.NormalizeMasculineLevel(option.ExpectedImpactLevel);
+            option.ExpectedEffortLevel = AiScenarioContentValidator.NormalizeMasculineLevel(option.ExpectedEffortLevel);
+            option.ExpectedViabilityLevel = AiScenarioContentValidator.NormalizeFeminineLevel(option.ExpectedViabilityLevel);
+            option.OrderIndex = index + 1;
+            option.IsBestOption = resourcePolicy.IsCorrect;
+            option.Cost = resourcePolicy.Cost;
+            option.TimeCost = resourcePolicy.TimeCost;
+            option.RiskImpact = resourcePolicy.RiskImpact;
+            option.MaxSelections = policy.MaxSelections;
+        }
+
+        EnsureGeneratedOptionTextsAreDistinct(content.Options);
+    }
+
+    private static List<string> NormalizeGeneratedTags(
+        IEnumerable<string>? tags,
+        string phaseName)
+    {
+        var normalizedTags = (tags ?? Array.Empty<string>())
+            .Select(tag => tag?.Trim() ?? string.Empty)
+            .Where(tag => tag.Length > 0)
+            .DistinctBy(AiScenarioContentValidator.NormalizeComparableText, StringComparer.Ordinal)
+            .Take(6)
+            .ToList();
+
+        if (normalizedTags.Count == 0)
+        {
+            normalizedTags.Add(phaseName.Trim());
+        }
+
+        return normalizedTags;
+    }
+
+    private static void EnsureGeneratedOptionTextsAreDistinct(
+        IReadOnlyList<AiScenarioOptionContent> options)
+    {
+        const int maximumTextLength = 500;
+        const int maximumRationaleExcerptLength = 120;
+        var normalizedTexts = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var index = 0; index < options.Count; index++)
+        {
+            var option = options[index];
+            if (normalizedTexts.Add(AiScenarioContentValidator.NormalizeComparableText(option.Text)))
+            {
+                continue;
+            }
+
+            var rationaleExcerpt = option.Rationale.Length <= maximumRationaleExcerptLength
+                ? option.Rationale
+                : option.Rationale[..maximumRationaleExcerptLength].TrimEnd();
+            var suffix = $" Enfoque {index + 1}: {rationaleExcerpt}";
+            var prefixLength = Math.Max(0, maximumTextLength - suffix.Length);
+            var prefix = option.Text.Length <= prefixLength
+                ? option.Text
+                : option.Text[..prefixLength].TrimEnd();
+            option.Text = $"{prefix}{suffix}".Trim();
+            normalizedTexts.Add(AiScenarioContentValidator.NormalizeComparableText(option.Text));
+        }
     }
 
     private static string NormalizeMethodologyCode(string methodology) =>

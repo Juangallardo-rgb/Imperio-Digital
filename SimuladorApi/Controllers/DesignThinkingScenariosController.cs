@@ -210,10 +210,28 @@ namespace SimuladorApi.Controllers
             methodologyCode = exception.MethodologyCode,
             correlationId = exception.CorrelationId,
             validationErrors = exception.ValidationErrors,
-            detail = exception.PhaseName is null
-                ? null
-                : "OpenRouter devolvió contenido que no cumplió la estructura esperada. Intenta nuevamente."
+            detail = BuildAiErrorDetail(exception)
         };
+
+        private static string? BuildAiErrorDetail(AiContentGenerationException exception)
+        {
+            if (exception.PhaseName is null)
+            {
+                return null;
+            }
+
+            return exception.StatusCode switch
+            {
+                StatusCodes.Status402PaymentRequired =>
+                    "La cuenta de OpenRouter no tiene créditos disponibles para el modelo configurado.",
+                StatusCodes.Status429TooManyRequests =>
+                    "OpenRouter limitó las solicitudes del modelo. No se modificó ni guardó parcialmente el escenario.",
+                _ when exception.ErrorCode is "invalid_json" or "empty_json_result" or
+                    "empty_response" or "truncated_response" or "AI_INVALID_SCHEMA" =>
+                    "OpenRouter devolvió contenido que no cumplió la estructura esperada. La fase se reintentó automáticamente.",
+                _ => "OpenRouter no pudo completar esta fase después de los reintentos automáticos."
+            };
+        }
 
         private int GetUserId()
         {
